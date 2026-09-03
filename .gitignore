@@ -1,0 +1,25 @@
+# FaceCard planning docs — local only, never committed/pushed
+PRD.md
+TRD.md
+design.md
+*.docx
+
+# Android / Gradle
+.gradle/
+build/
+app/build/
+local.properties
+*.ap_
+*.aab
+*.apk
+*.dex
+captures/
+
+# IntelliJ / Android Studio
+.idea/
+*.iml
+*.iws
+.DS_Store
+
+# FaceCard pipeline cache (local test frames)
+/facecard-cache/

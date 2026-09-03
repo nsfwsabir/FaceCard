@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">FaceCard</string>
+    <string name="tagline">Every face, once. Your video\'s best story.</string>
+    <string name="choose_video">Choose video</string>
+    <string name="cd_app_logo">FaceCard logo</string>
+</resources>
