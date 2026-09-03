@@ -3,6 +3,7 @@ PRD.md
 TRD.md
 design.md
 *.docx
+.~lock.*
 
 # Android / Gradle
 .gradle/
