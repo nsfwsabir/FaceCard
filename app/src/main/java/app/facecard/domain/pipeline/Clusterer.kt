@@ -200,9 +200,14 @@ class Clusterer(
          * people; bigger ones are kept as-is (too much evidence to overrule).
          */
         const val DISSOLVE_MAX_SIZE = 12
-        /** Per-sample bar for dissolve reassignment into an established cluster. */
-        const val DISSOLVE_REASSIGN = 0.45f
-        /**
+                /**
+         * Per-sample bar for dissolve reassignment into an established
+         * cluster. Deliberately duplicate-grade (≥ join bar): dissolving at
+         * a lower bar fed a real always-shared person to the nearest big
+         * cluster on device. Ambiguous leftovers survive as their own
+         * person now — the UI's manual merge resolves those with a human.
+         */
+        const val DISSOLVE_REASSIGN = 0.55f        /**
          * Pairs survive pruning; only true singletons are noise-candidates
          * (and even those are reassigned when they resemble someone).
          */
@@ -218,6 +223,10 @@ class Clusterer(
             // everything with everything.
             return if (dot.isNaN()) -1f else dot
         }
+
+        /** L2-normalised mean embedding: the cluster's identity signature. */
+        fun centroidOf(members: List<FaceSample>): FloatArray =
+            meanNormalized(members)
 
         private fun meanNormalized(members: List<FaceSample>): FloatArray {
             val dim = members.first().embedding.size

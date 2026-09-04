@@ -289,7 +289,7 @@ class ProcessingViewModel(
                 )
                 val doneMeta = meta.copy(frameCount = count)
                 (extractor.appContext.applicationContext as FaceCardApp)
-                    .resultStore.set(ProcessResult(people), thumbs, doneMeta, uri)
+                    .resultStore.set(ProcessResult(people), thumbs, doneMeta, uri, extractor)
                 _state.value = PipelineUiState.Done(doneMeta)
             } catch (e: CancellationException) {
                 _state.value = PipelineUiState.Cancelled

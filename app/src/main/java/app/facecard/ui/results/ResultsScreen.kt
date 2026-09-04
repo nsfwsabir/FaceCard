@@ -33,12 +33,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -52,6 +54,7 @@ import androidx.compose.ui.unit.dp
 import app.facecard.data.FaceCardApp
 import app.facecard.domain.model.Person
 import app.facecard.ui.theme.FaceCardTheme
+import kotlinx.coroutines.launch
 import kotlin.math.abs
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -63,7 +66,10 @@ fun ResultsScreen(
     val app = LocalContext.current.applicationContext as FaceCardApp
     val result by app.resultStore.result.collectAsState()
     val thumbs by app.resultStore.thumbs.collectAsState()
+    val hints by app.resultStore.hints.collectAsState()
     var expandedId by rememberSaveable { mutableStateOf<Int?>(null) }
+    var armedMerge by rememberSaveable { mutableStateOf<String?>(null) }
+    val mergeScope = rememberCoroutineScope()
 
     Scaffold(
         topBar = { TopAppBar(title = { Text("Results") }) },
@@ -114,13 +120,36 @@ fun ResultsScreen(
                     val shared = remember(res, person) {
                         sharesFrameWithSomeone(res.people, person)
                     }
+                    val hint = remember(hints, person) {
+                        hints.firstOrNull { it.aId == person.id || it.bId == person.id }
+                    }
+                    val otherId = hint?.let {
+                        if (it.aId == person.id) it.bId else it.aId
+                    }
+                    val otherLabel = res.people.find { it.id == otherId }?.label
                     PersonCard(
                         person = person,
                         thumb = thumbs[person.id],
                         expanded = expandedId == person.id,
                         sharedBadge = shared,
+                        hintSim = hint?.sim,
+                        otherLabel = otherLabel,
+                        armed = armedMerge == "${person.id}->$otherId",
                         onToggle = {
                             expandedId = if (expandedId == person.id) null else person.id
+                        },
+                        onMerge = {
+                            val other = otherId ?: return@PersonCard
+                            val key = "${person.id}->$other"
+                            if (armedMerge == key) {
+                                armedMerge = null
+                                if (expandedId == other) expandedId = null
+                                mergeScope.launch {
+                                    app.resultStore.mergePeople(person.id, other)
+                                }
+                            } else {
+                                armedMerge = key
+                            }
                         },
                     )
                 }
@@ -156,7 +185,11 @@ private fun PersonCard(
     thumb: android.graphics.Bitmap?,
     expanded: Boolean,
     sharedBadge: Boolean,
+    hintSim: Float?,
+    otherLabel: String?,
+    armed: Boolean,
     onToggle: () -> Unit,
+    onMerge: () -> Unit,
 ) {
     Card(
         onClick = onToggle,
@@ -206,6 +239,17 @@ private fun PersonCard(
                     }
                 }
                 QualityBadges(person)
+                if (hintSim != null && otherLabel != null) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Looks like $otherLabel · ${"%.2f".format(hintSim)}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.tertiary,
+                    )
+                    TextButton(onClick = onMerge) {
+                        Text(if (armed) "Tap again to merge" else "Merge into one")
+                    }
+                }
             }
             AnimatedVisibility(
                 visible = expanded,

@@ -97,7 +97,8 @@ fun CollageScreen(onBack: () -> Unit) {
         )
         val uiState by vm.ui.collectAsStateWithLifecycle()
         val saveState by vm.saveUi.collectAsStateWithLifecycle()
-        LaunchedEffect(m.uri) { vm.render() }
+        // Re-render when the result changes (e.g. after a manual merge).
+        LaunchedEffect(m.uri, res) { vm.render() }
 
         // Write permission only exists pre-29; SAF/MediaStore need none on 29+.
         val permissionLauncher = rememberLauncherForActivityResult(

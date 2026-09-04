@@ -125,17 +125,34 @@ class ClustererTest {
     }
 
     @Test
-    fun `never-alone fragment dissolves into established people`() {
-        // Big cast member across [0,2000]; a 3-sample fragment living entirely
-        // inside that window (sim 0.50: below join AND general merge bars).
-        // Encodes the shared-frame orphan rescue (×1 bogus-person fix).
+    fun `never-alone fragment rejoins after centroid migration`() {
+        // The dissolve-rescue path: F can never join directly (sim 0.53 to
+        // the early centroid) and the general merge bar plus the overlap
+        // block both refuse — but once Y-samples migrate the big centroid
+        // toward F, dissolving each fragment sample clears the 0.55
+        // duplicate-grade bar. Encodes the shared-frame orphan rescue.
+        // (Y sits nearer X than F so it joins big instead of the fragment.)
+        val big = listOf(0L, 500L, 1000L).map { sample(it, floatArrayOf(1f, 0f, 0f)) } +
+            listOf(1800L, 2000L).map { sample(it, floatArrayOf(0.9f, 0.4359f, 0f)) }
+        val frag = listOf(1200L, 1400L, 1600L)
+            .map { sample(it, floatArrayOf(0.53f, 0.8479f, 0f)) }
+        val clusters = Clusterer().cluster(big + frag)
+        assertEquals(1, clusters.size)
+        assertEquals(8, clusters[0].size)
+    }
+
+    @Test
+    fun `sub-threshold never-alone fragment is dropped, not personified`() {
+        // Same setup as above but the fragment sits at sim 0.50: below every
+        // bar. It must vanish (not survive as a ×1 bogus person), while the
+        // established cluster is untouched.
         val big = listOf(0L, 500L, 1000L, 1500L, 2000L)
             .map { sample(it, floatArrayOf(1f, 0f, 0f)) }
         val frag = listOf(200L, 600L, 1000L)
             .map { sample(it, floatArrayOf(0.5f, 0.866f, 0f)) }
         val clusters = Clusterer().cluster(big + frag)
         assertEquals(1, clusters.size)
-        assertEquals(8, clusters[0].size)
+        assertEquals(5, clusters[0].size)
     }
 
     @Test
