@@ -11,9 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Face
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material3.AssistChip
@@ -33,7 +31,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -42,7 +39,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.facecard.R
 import app.facecard.ui.theme.FaceCardTheme
-import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -54,7 +50,6 @@ fun HomeScreen(
     val context = LocalContext.current
     val threshold by vm.thresholdLabel.collectAsState()
     val snackbar = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
     val picker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
     ) { uri: Uri? ->
@@ -117,41 +112,6 @@ fun HomeScreen(
                 AssistChip(onClick = {}, label = { Text("On-device") })
                 AssistChip(onClick = {}, label = { Text("ML Kit + MobileFaceNet") })
                 AssistChip(onClick = {}, label = { Text(threshold) })
-            }
-
-            Text(
-                text = "Samples",
-                style = MaterialTheme.typography.titleMedium,
-            )
-            // Phase 2: sample cards explain where test clips come from.
-            // Tapping one tells the user to download it, then use Choose video.
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                items(3) { i ->
-                    Card(
-                        onClick = {
-                            scope.launch {
-                                snackbar.showSnackbar(
-                                    "Download Sample ${i + 1} from the Drive folder, " +
-                                        "then Choose video.",
-                                )
-                            }
-                        },
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                        ),
-                    ) {
-                        Column(Modifier.padding(20.dp)) {
-                            Icon(Icons.Rounded.Face, contentDescription = null)
-                            Spacer(Modifier.height(8.dp))
-                            Text("Sample ${i + 1}", style = MaterialTheme.typography.titleMedium)
-                            Text(
-                                "30s portrait",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                }
             }
 
             Card {
