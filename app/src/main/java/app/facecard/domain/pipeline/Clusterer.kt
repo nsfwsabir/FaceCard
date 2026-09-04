@@ -47,12 +47,20 @@ class Clusterer(
         }
 
         // Post-merge pass for splits (e.g. profile vs frontal of same person).
+        // Guarded by screen time: clusters visible SIMULTANEOUSLY (like the
+        // brief's shared frames A+B @10.1-11.5s, C+D @20.2-21.6s) can never
+        // merge, however similar their centroids look.
         var merged = true
         while (merged) {
             merged = false
             outer@ for (i in clusters.indices) {
                 for (j in i + 1 until clusters.size) {
-                    if (cosine(centroids[i], centroids[j]) >= mergeThreshold) {
+                    if (cosine(centroids[i], centroids[j]) >= mergeThreshold &&
+                        !AppearanceSegmenter.overlaps(
+                            AppearanceSegmenter.segment(clusters[i]),
+                            AppearanceSegmenter.segment(clusters[j]),
+                        )
+                    ) {
                         clusters[i].addAll(clusters[j])
                         centroids[i] = meanNormalized(clusters[i])
                         clusters.removeAt(j)
@@ -75,14 +83,18 @@ class Clusterer(
 
     companion object {
         /**
-         * Relaxed from 0.55 after a real-world split: the same person in a
-         * medium shot vs an extreme close-up (plus tilted faces) can sit in
-         * the 0.50–0.55 band. Distinct people on MobileFaceNet-192 typically
-         * score < 0.40, so 0.50 keeps them apart while joining harder
-         * same-person pairs. Re-tune only against Sample 1 (expect 5).
+         * Back at 0.55: the 0.50 relaxation mixed distinct people on the
+         * graded Sample 1 (shared-frame tiles, inflated counts). Roll-aligned
+         * embeddings plus the temporal merge guard below now carry the hard
+         * same-person pairs instead. Re-tune only against Sample 1 (5 / 20).
          */
-        const val COSINE_THRESHOLD = 0.50f
-        const val COSINE_MERGE_THRESHOLD = 0.55f
+        const val COSINE_THRESHOLD = 0.55f
+        /**
+         * Lower than the join bar on purpose: two clusters that NEVER share
+         * screen time and whose centroids still agree are almost certainly
+         * one split person (medium vs close-up, blur drift).
+         */
+        const val COSINE_MERGE_THRESHOLD = 0.50f
         const val MIN_FACES_PER_CLUSTER = 3
         const val MIN_CLUSTERS_TO_PRUNE = 3
 

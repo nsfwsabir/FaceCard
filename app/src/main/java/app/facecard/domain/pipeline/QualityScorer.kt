@@ -39,15 +39,28 @@ object QualityScorer {
         if (s.eyeOpen < 0.25f) veto *= 0.2f
         if (s.edgeClipped) veto *= 0.3f
         if (abs(s.eulerY) > 35f) veto *= 0.5f
+        // Tiny far-away faces upscale into mushy tiles (and are often
+        // partial/false hits): below 2% of frame area, halve the score.
+        if (s.frameW > 0 && s.frameH > 0 &&
+            s.area < 0.02f * s.frameW * s.frameH
+        ) {
+            veto *= 0.5f
+        }
         val total = (0.30f * frontality + 0.30f * sharpness + 0.20f * s.eyeOpen +
             0.15f * s.smiling + 0.05f * size) * veto
         return Breakdown(frontality, sharpness, s.eyeOpen, s.smiling, size, veto, total)
     }
 
-    /** Argmax with sharpness tie-break (deterministic). */
+    /**
+     * Argmax with sharpness tie-break (deterministic). Strongly prefers
+     * solo-frame candidates: a shared frame's generous crop drags the other
+     * person into the tile. Falls back to group candidates only when the
+     * person never appears alone.
+     */
     fun best(samples: List<FaceSample>): FaceSample {
         require(samples.isNotEmpty())
-        return samples.maxWith(
+        val pool = samples.filter { it.soloFrame }.ifEmpty { samples }
+        return pool.maxWith(
             compareBy<FaceSample> { score(it).total }.thenBy { it.sharpness },
         )
     }

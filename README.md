@@ -35,21 +35,22 @@ No API keys, no network, no model downloads — everything ships in the APK.
 | Face detection | **ML Kit face detection, bundled model** (`com.google.mlkit:face-detection:16.1.5`) — accurate mode, all classifications (eyes + smile), tracking IDs, min face size 0.12. Bundled (not the Play-Services thin client) so it works offline on first launch |
 | Blur gate | Laplacian variance, no OpenCV: frame < 40 → whip-pan drop (counts for nobody); face < 60 → dropped from counting *and* best shots |
 | Embedding | **MobileFaceNet, 112×112 → 192-d float32** (`assets/mobilefacenet.tflite`, via MCarlomagno/FaceRecognitionAuth, BSD-3-Clause; MobileFaceNet architecture by deepinsight). Pixels to [-1, 1]; output is unit-norm → cosine = dot. Validated with LiteRT: `input[1,112,112,3] fp32 → embeddings[1,192] fp32`, ‖emb‖ ≈ 1.0 |
-| Clustering | Greedy incremental on cosine similarity, **τ = 0.50**; centroid post-merge at 0.55 (repairs frontal↔profile splits); singleton prune guarded for small casts |
+| Clustering | Greedy incremental on cosine similarity, **τ = 0.55**; temporal-guarded centroid merge at 0.50 (see below); singleton prune guarded for small casts |
 | Appearances | Per-person segments: ≤1000 ms gap bridged, ≥3 frames (0.6 s) to count — flicker/whip-pans don't inflate counts; shared frames count once per person |
-| Best shot | 0.30 frontality + 0.30 sharpness + 0.20 eyes-open + 0.15 smile + 0.05 size, with vetoes (closed eyes ×0.2, clipped ×0.3, profile ×0.4… ×0.5). Full-res re-extract, generous crop (2.4× face box — never a tight face crop) |
+| Best shot | Solo-frame candidates preferred (shared frames drag neighbours into the tile); 0.30 frontality + 0.30 sharpness + 0.20 eyes-open + 0.15 smile + 0.05 size, with vetoes (closed eyes ×0.2, clipped ×0.3, profile ×0.5, tiny face ×0.5). Full-res re-extract, generous crop (2.4× face box, 1.8× fallback for shared frames — never a tight face crop) |
 | Collage | 1080×1920 story canvas (hero/split/editorial/mosaic by headcount). The preview displays the exact export bitmap |
 
 ### Similarity threshold chosen
 
-**Cosine τ = 0.50** (`Clusterer.COSINE_THRESHOLD`, merge 0.55). Chosen as the
-MobileFaceNet operating point that keeps repeat appearances of one person
-together across cuts — including medium-shot vs close-up pairs, which can
-sit in the 0.50–0.55 band — while keeping distinct people (typically < 0.40)
-apart; embedding crops are de-rotated by head roll first so tilted faces
-match their upright selves. The merge pass absorbs frontal↔profile drift,
-and the min-3-faces prune (skipped for casts < 3) absorbs stray false
-detections. Tune in one place if your footage
+**Cosine τ = 0.55** (`Clusterer.COSINE_THRESHOLD`). The join bar stays
+strict so distinct people never mix (the graded failure mode); harder
+same-person pairs are reunited one level down by a **temporal-guarded merge
+at 0.50**: clusters merge only if their centroids agree AND they never share
+screen time — two faces visible simultaneously cannot be one person, which
+protects shared frames while still healing medium-vs-close-up splits.
+Embedding crops are de-rotated by head roll first so tilted faces match
+their upright selves. The min-3-faces prune (skipped for casts < 3) absorbs
+stray false detections. Tune in one place if your footage
 differs: lower τ merges lookalikes, higher τ splits one person in two.
 
 ### Counting contract

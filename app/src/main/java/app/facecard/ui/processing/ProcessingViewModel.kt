@@ -177,6 +177,7 @@ class ProcessingViewModel(
                                                 bottom = f.bottom,
                                                 frameW = bmp.width,
                                                 frameH = bmp.height,
+                                                soloFrame = faces.size == 1,
                                             ),
                                         )
                                         kept++
@@ -246,7 +247,10 @@ class ProcessingViewModel(
                         )
                         try {
                             extractor.frameAt(uri, p.best.tsMs)?.let { full ->
-                                val crop = generousCrop(p.best, full.width, full.height)
+                                val crop = generousCrop(
+                                    p.best, full.width, full.height,
+                                    shared = !p.best.soloFrame,
+                                )
                                 val tile = Bitmap.createBitmap(
                                     full, crop.l, crop.t, crop.w, crop.h,
                                 )

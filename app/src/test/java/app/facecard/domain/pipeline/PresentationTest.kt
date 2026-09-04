@@ -18,12 +18,13 @@ class QualityScorerTest {
         smiling: Float = 0.8f,
         edgeClipped: Boolean = false,
         area: Int = 40_000,
+        soloFrame: Boolean = true,
     ) = FaceSample(
         tsMs = 0L, embedding = floatArrayOf(1f, 0f), sharpness = sharpness,
         eulerY = eulerY, eulerZ = eulerZ, eyeOpen = eyeOpen, smiling = smiling,
         edgeClipped = edgeClipped, area = area, trackingId = null,
         left = 100, top = 100, right = 300, bottom = 300,
-        frameW = 640, frameH = 1136,
+        frameW = 640, frameH = 1136, soloFrame = soloFrame,
     )
 
     @Test
@@ -67,6 +68,30 @@ class QualityScorerTest {
             sample(sharpness = 300.0),
         )
         assertEquals(500.0, QualityScorer.best(samples).sharpness, 1e-9)
+    }
+
+    @Test
+    fun `solo frame wins over higher-scoring shared frame`() {
+        // Shared candidate is objectively "better" (perfect smile, wide-open
+        // eyes) — but its tile would swallow the neighbour, so the solo
+        // candidate must win. Regression test for two-face tiles.
+        val solo = sample(sharpness = 400.0, soloFrame = true)
+        val shared = sample(
+            sharpness = 550.0, eyeOpen = 1f, smiling = 1f, soloFrame = false,
+        )
+        assertTrue(
+            QualityScorer.score(shared).total > QualityScorer.score(solo).total,
+        )
+        assertEquals(solo, QualityScorer.best(listOf(solo, shared)))
+    }
+
+    @Test
+    fun `tiny face is vetoed`() {
+        // 40_000px ≈ 5.5% of a 640×1136 frame (clean); 10_000px ≈ 1.4% vetoed.
+        val clean = QualityScorer.score(sample()).total
+        val tiny = QualityScorer.score(sample(area = 10_000)).total
+        val ratio = tiny / clean
+        assertTrue("ratio=$ratio", ratio in 0.40f..0.55f)
     }
 }
 
@@ -117,7 +142,7 @@ class TileCropperTest {
         eulerY = 0f, eulerZ = 0f, eyeOpen = 0.9f, smiling = 0.5f,
         edgeClipped = false, area = 10_000, trackingId = null,
         left = 270, top = 400, right = 370, bottom = 500, // 100×100 in 640×1136
-        frameW = 640, frameH = 1136,
+        frameW = 640, frameH = 1136, soloFrame = true,
     )
 
     @Test

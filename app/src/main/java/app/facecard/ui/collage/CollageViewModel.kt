@@ -71,7 +71,10 @@ class CollageViewModel(
                             ?: throw IllegalStateException(
                                 "Couldn't re-read frame for ${p.label}",
                             )
-                        val crop = generousCrop(p.best, full.width, full.height)
+                        val crop = generousCrop(
+                            p.best, full.width, full.height,
+                            shared = !p.best.soloFrame,
+                        )
                         val tile = Bitmap.createBitmap(full, crop.l, crop.t, crop.w, crop.h)
                         full.recycle()
                         TileInput(

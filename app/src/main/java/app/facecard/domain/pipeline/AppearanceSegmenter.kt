@@ -55,4 +55,16 @@ object AppearanceSegmenter {
 
     /** ≥3 valid frames ≈ 0.6s @5fps — shorter runs are flicker. */
     const val MIN_SEGMENT_LEN = 3
+
+    /**
+     * True when any segment in [a] overlaps any in [b] (shared screen time).
+     * Used by the cluster merge guard: two clusters visible SIMULTANEOUSLY
+     * cannot be the same person, no matter how similar the centroids.
+     */
+    fun overlaps(a: List<Appearance>, b: List<Appearance>): Boolean {
+        for (x in a) for (y in b) {
+            if (x.startMs < y.endMs && y.startMs < x.endMs) return true
+        }
+        return false
+    }
 }

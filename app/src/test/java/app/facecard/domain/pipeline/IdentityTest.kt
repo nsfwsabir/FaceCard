@@ -25,7 +25,7 @@ class ClustererTest {
         eulerY = 0f, eulerZ = 0f, eyeOpen = 0.9f, smiling = 0.5f,
         edgeClipped = false, area = 10_000, trackingId = null,
         left = 100, top = 100, right = 200, bottom = 200,
-        frameW = 640, frameH = 640,
+        frameW = 640, frameH = 640, soloFrame = true,
     )
 
     @Test
@@ -82,14 +82,29 @@ class ClustererTest {
     }
 
     @Test
-    fun `moderately similar pair joins at relaxed default`() {
-        // cos ≈ 0.52: splits at the old 0.55, joins at 0.50. Regression test
-        // for the medium-shot vs close-up split seen on device.
+    fun `moderately similar non-overlapping pair merges via temporal guard`() {
+        // cos ≈ 0.52: below the 0.55 join bar (stays split there) but above
+        // the 0.50 merge bar — and with no shared screen time, the guarded
+        // merge reunites them. Regression test for medium-vs-close-up splits.
         val a = sample(0L, floatArrayOf(1f, 0f, 0f))
         val b = sample(5000L, floatArrayOf(0.52f, 0.8537f, 0f))
         val clusters = Clusterer(minFaces = 1).cluster(listOf(a, b))
         assertEquals(1, clusters.size)
         assertEquals(2, clusters[0].size)
+    }
+
+    @Test
+    fun `overlapping clusters never merge despite similar centroids`() {
+        // X and Y look alike (cos 0.95) AND share screen time — the guarded
+        // merge must refuse: same person can't be two faces at once. This is
+        // what protects the brief's shared frames (A+B, C+D).
+        val xs = listOf(0L, 200L, 400L).map { sample(it, floatArrayOf(1f, 0f, 0f)) }
+        val ys = listOf(100L, 300L, 500L).map {
+            sample(it, floatArrayOf(0.95f, 0.3122f, 0f))
+        }
+        val clusters = Clusterer(threshold = 0.99f, mergeThreshold = 0.90f, minFaces = 1)
+            .cluster(xs + ys)
+        assertEquals(2, clusters.size)
     }
 
     @Test
@@ -113,7 +128,7 @@ class AppearanceSegmenterTest {
         eulerY = 0f, eulerZ = 0f, eyeOpen = 0.9f, smiling = 0.5f,
         edgeClipped = false, area = 10_000, trackingId = null,
         left = 100, top = 100, right = 200, bottom = 200,
-        frameW = 640, frameH = 640,
+        frameW = 640, frameH = 640, soloFrame = true,
     )
 
     @Test

@@ -27,4 +27,10 @@ data class FaceSample(
     val bottom: Int,
     val frameW: Int,
     val frameH: Int,
+    /**
+     * True when this face was the only detection in its frame. Solo frames
+     * make the only safe tiles — shared frames drag neighbours into the
+     * generous crop.
+     */
+    val soloFrame: Boolean,
 )

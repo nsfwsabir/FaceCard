@@ -13,8 +13,17 @@ data class CropRect(val l: Int, val t: Int, val w: Int, val h: Int)
  * 2.4× the face box (min 45% of the short side), shifts up slightly for
  * headroom, clamps into the frame. Falls back to the full frame when the
  * crop would exceed it. NEVER a tight face-box crop.
+ *
+ * @param shared the best shot comes from a shared frame (no solo candidate
+ *   existed): pulls the expansion in to 1.8× / 35% so the neighbour
+ *   intrudes less. Still generous — just less greedy.
  */
-fun generousCrop(s: FaceSample, fullW: Int, fullH: Int): CropRect {
+fun generousCrop(
+    s: FaceSample,
+    fullW: Int,
+    fullH: Int,
+    shared: Boolean = false,
+): CropRect {
     val bw = s.right - s.left
     val bh = s.bottom - s.top
     if (s.frameW <= 0 || s.frameH <= 0 || bw <= 0 || bh <= 0 || fullW <= 0 || fullH <= 0) {
@@ -24,8 +33,8 @@ fun generousCrop(s: FaceSample, fullW: Int, fullH: Int): CropRect {
     val sy = fullH.toFloat() / s.frameH
     val cx = ((s.left + s.right) / 2f) * sx
     var cy = ((s.top + s.bottom) / 2f) * sy
-    var side = max(bw * sx, bh * sy) * 2.4f
-    side = max(side, 0.45f * min(fullW, fullH))
+    var side = max(bw * sx, bh * sy) * (if (shared) 1.8f else 2.4f)
+    side = max(side, (if (shared) 0.35f else 0.45f) * min(fullW, fullH))
     cy -= side * 0.08f // headroom: faces sit slightly below tile centre
     if (side >= min(fullW, fullH) * 0.98f) {
         return CropRect(0, 0, fullW, fullH)
