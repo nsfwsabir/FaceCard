@@ -55,6 +55,10 @@ class Clusterer(
                 centroids.add(s.embedding.copyOf())
             }
         }
+        logger?.invoke(
+            "formed ${clusters.size} raw clusters " +
+                "sizes=${clusters.map { it.size }}",
+        )
 
         // Post-merge rescue net, two tiers. Established+established pairs
         // (like the brief's shared frames A+B @10.1-11.5s, C+D @20.2-21.6s)
@@ -153,6 +157,11 @@ class Clusterer(
                             kept[best].add(s)
                             recipientCentroid[best] = meanNormalized(kept[best])
                             rescued++
+                            logger?.invoke(
+                                "dissolve ts=${s.tsMs} " +
+                                    "sim=${"%.3f".format(bestSim)} " +
+                                    "-> size=${kept[best].size}",
+                            )
                         } else {
                             logger?.invoke("dissolve-drop ts=${s.tsMs}")
                         }
