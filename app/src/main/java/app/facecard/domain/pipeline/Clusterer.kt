@@ -74,9 +74,15 @@ class Clusterer(
     }
 
     companion object {
-        /** Tuned on Sample 1 (expect 5 clusters); see TRD §5 + README. */
-        const val COSINE_THRESHOLD = 0.55f
-        const val COSINE_MERGE_THRESHOLD = 0.60f
+        /**
+         * Relaxed from 0.55 after a real-world split: the same person in a
+         * medium shot vs an extreme close-up (plus tilted faces) can sit in
+         * the 0.50–0.55 band. Distinct people on MobileFaceNet-192 typically
+         * score < 0.40, so 0.50 keeps them apart while joining harder
+         * same-person pairs. Re-tune only against Sample 1 (expect 5).
+         */
+        const val COSINE_THRESHOLD = 0.50f
+        const val COSINE_MERGE_THRESHOLD = 0.55f
         const val MIN_FACES_PER_CLUSTER = 3
         const val MIN_CLUSTERS_TO_PRUNE = 3
 

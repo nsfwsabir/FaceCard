@@ -82,6 +82,17 @@ class ClustererTest {
     }
 
     @Test
+    fun `moderately similar pair joins at relaxed default`() {
+        // cos ≈ 0.52: splits at the old 0.55, joins at 0.50. Regression test
+        // for the medium-shot vs close-up split seen on device.
+        val a = sample(0L, floatArrayOf(1f, 0f, 0f))
+        val b = sample(5000L, floatArrayOf(0.52f, 0.8537f, 0f))
+        val clusters = Clusterer(minFaces = 1).cluster(listOf(a, b))
+        assertEquals(1, clusters.size)
+        assertEquals(2, clusters[0].size)
+    }
+
+    @Test
     fun `empty input gives empty output`() {
         assertTrue(Clusterer().cluster(emptyList()).isEmpty())
     }

@@ -2,12 +2,14 @@ package app.facecard.data.face
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Matrix
 import org.tensorflow.lite.Interpreter
 import java.io.Closeable
 import java.io.FileInputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.channels.FileChannel
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.sqrt
 
@@ -112,7 +114,13 @@ class TfliteMobileFaceNet(appContext: Context) : EmbeddingModel {
 /**
  * Generous square crop around a detected face for the embedding model:
  * box expanded by [expandFrac], squared on the longer side, clamped into
- * the frame, resized to [size]. No tight face-box crops (PRD F-9).
+ * the frame, de-rotated by [rollDeg] (ML Kit Euler Z — head tilt in the
+ * image plane), resized to [size]. No tight face-box crops (PRD F-9).
+ *
+ * Roll alignment matters: sideways/tilted faces (selfie videos, Snapchat
+ * clips) embed far from their upright selves and split one person into
+ * two clusters. Uprighting first keeps same-person similarity high.
+ * Rotation below 15° is skipped to avoid pointless resampling.
  * Caller must recycle the returned bitmap.
  */
 fun squareFaceCrop(
@@ -120,6 +128,7 @@ fun squareFaceCrop(
     f: DetectedFace,
     expandFrac: Float = 0.2f,
     size: Int = 112,
+    rollDeg: Float = 0f,
 ): Bitmap {
     val cx = (f.left + f.right) / 2f
     val cy = (f.top + f.bottom) / 2f
@@ -132,7 +141,14 @@ fun squareFaceCrop(
     l = (r - side).toInt().coerceAtLeast(0)
     t = (b - side).toInt().coerceAtLeast(0)
     val cropped = Bitmap.createBitmap(src, l, t, r - l, b - t)
-    return Bitmap.createScaledBitmap(cropped, size, size, true).also {
-        cropped.recycle()
+    val upright = if (abs(rollDeg) >= 15f) {
+        val m = Matrix().apply { postRotate(-rollDeg, cropped.width / 2f, cropped.height / 2f) }
+        Bitmap.createBitmap(cropped, 0, 0, cropped.width, cropped.height, m, true)
+            .also { cropped.recycle() }
+    } else {
+        cropped
+    }
+    return Bitmap.createScaledBitmap(upright, size, size, true).also {
+        upright.recycle()
     }
 }

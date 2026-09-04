@@ -151,7 +151,9 @@ class ProcessingViewModel(
                                     if (sharp < BlurEstimator.FACE_MIN_VARIANCE) {
                                         blurredFaces++
                                     } else {
-                                        val crop = squareFaceCrop(bmp, f)
+                                        val crop = squareFaceCrop(
+                                            bmp, f, rollDeg = f.eulerZ,
+                                        )
                                         val emb = embedder.embed(crop)
                                         crop.recycle()
                                         samples.add(
