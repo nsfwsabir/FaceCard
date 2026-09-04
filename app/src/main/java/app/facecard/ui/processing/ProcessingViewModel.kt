@@ -217,16 +217,25 @@ class ProcessingViewModel(
                 )
                 val people = withContext(Dispatchers.Default) {
                     Clusterer().cluster(samples) { msg -> Log.d("FaceCard", msg) }
-                        .mapIndexed { i, members ->
-                        val best = QualityScorer.best(members)
-                        Person(
-                            id = i,
-                            label = "Person ${'A' + i}",
-                            samples = members,
-                            appearances = AppearanceSegmenter.segment(members),
-                            best = best,
-                        )
-                    }
+                        .map { members ->
+                            val best = QualityScorer.best(members)
+                            Person(
+                                id = -1, // assigned below after filtering
+                                label = "",
+                                samples = members,
+                                appearances = AppearanceSegmenter.segment(members),
+                                best = best,
+                            )
+                        }
+                        .filter { it.appearances.isNotEmpty() }
+                        .also { kept ->
+                            // Faces not assigned to any shown person: DBSCAN
+                            // noise, pruned singletons, or clusters with no
+                            // countable (≥3-frame) appearance.
+                            val stray = samples.size - kept.sumOf { it.samples.size }
+                            Log.d("FaceCard", "kept ${kept.size} people ($stray stray faces)")
+                        }
+                        .mapIndexed { i, p -> p.copy(id = i, label = "Person ${'A' + i}") }
                 }
                 val result = ProcessResult(people)
                 _result.value = result
@@ -289,7 +298,7 @@ class ProcessingViewModel(
                 )
                 val doneMeta = meta.copy(frameCount = count)
                 (extractor.appContext.applicationContext as FaceCardApp)
-                    .resultStore.set(ProcessResult(people), thumbs, doneMeta, uri, extractor)
+                    .resultStore.set(ProcessResult(people), thumbs, doneMeta, uri)
                 _state.value = PipelineUiState.Done(doneMeta)
             } catch (e: CancellationException) {
                 _state.value = PipelineUiState.Cancelled

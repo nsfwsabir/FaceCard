@@ -72,9 +72,9 @@ fun AboutScreen(onBack: () -> Unit) {
                 Text("Via MCarlomagno/FaceRecognitionAuth (BSD-3-Clause)")
             }
             AboutCard("Key thresholds") {
-                Text("Cosine join τ = ${Clusterer.COSINE_THRESHOLD} " +
-                    "(merge ${Clusterer.COSINE_MERGE_THRESHOLD}, " +
-                    "orphan rescue ${Clusterer.COSINE_ORPHAN_MERGE})")
+                Text("Smile DBSCAN: cosine eps 0.45 · " +
+                    "minPts ${Clusterer.DBSCAN_MIN_PTS} (LGPL-3.0, on-device)")
+                Text("Join operating point: cosine sim τ = ${Clusterer.COSINE_THRESHOLD}")
                 Text("Blur: frame ≥ 40, face ≥ 60 (Laplacian variance)")
                 Text("Segment gap ≤ ${AppearanceSegmenter.GAP_TOL_MS}ms, " +
                     "min length ${AppearanceSegmenter.MIN_SEGMENT_LEN} frames")

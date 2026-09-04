@@ -6,6 +6,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -40,7 +42,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import app.facecard.R
 import app.facecard.ui.theme.FaceCardTheme
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun HomeScreen(
     onVideoPicked: (Uri) -> Unit,
@@ -108,7 +110,10 @@ fun HomeScreen(
                 }
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 AssistChip(onClick = {}, label = { Text("On-device") })
                 AssistChip(onClick = {}, label = { Text("ML Kit + MobileFaceNet") })
                 AssistChip(onClick = {}, label = { Text(threshold) })

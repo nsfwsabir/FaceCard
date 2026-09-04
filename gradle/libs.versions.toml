@@ -12,6 +12,7 @@ mlkitFaceDetection = "16.1.5"
 tflite = "2.14.0"
 tfliteSupport = "0.4.4"
 datastore = "1.1.1"
+smile = "2.6.0"
 junit = "4.13.2"
 
 [libraries]
@@ -34,6 +35,7 @@ mlkit-face-detection = { group = "com.google.mlkit", name = "face-detection", ve
 tflite-api = { group = "org.tensorflow", name = "tensorflow-lite", version.ref = "tflite" }
 tflite-support = { group = "org.tensorflow", name = "tensorflow-lite-support", version.ref = "tfliteSupport" }
 datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }
+smile-core = { group = "com.github.haifengl", name = "smile-core", version.ref = "smile" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 
 [plugins]

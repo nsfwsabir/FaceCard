@@ -6,12 +6,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.math.sqrt
 
+/**
+ * DBSCAN semantics (Smile): density chaining, native noise, no time guard —
+ * cross-identity pairs separate by distance, not by screen time.
+ */
 class ClustererTest {
 
     /**
-     * Builds a unit vector leaning mostly along [axis] with slight [tilt].
-     * NOTE: [tiltAxis] must differ from [axis] — writing the tilt onto the
-     * axis zeroes it (0/0 = NaN), which once silently poisoned these tests.
+     * Builds a unit vector leaning mostly along [axis] with slight [tilt]
+     * on a DIFFERENT axis (writing tilt onto the axis zeroes it → NaN).
      */
     private fun vec(axis: Int, tilt: Float = 0f, tiltAxis: Int = 1): FloatArray {
         val v = FloatArray(3)
@@ -34,28 +37,60 @@ class ClustererTest {
     )
 
     @Test
-    fun `two people form two clusters`() {
+    fun `two densities form two clusters`() {
         val samples = mutableListOf<FaceSample>()
-        repeat(4) { i ->
-            samples.add(sample(i * 5000L, vec(0, 0.05f * i)))
-            samples.add(sample(i * 5000L + 200L, vec(1, 0.05f * i, tiltAxis = 0)))
+        repeat(3) { i ->
+            samples.add(sample(i * 5000L, vec(0, 0.02f * i)))
+            samples.add(sample(i * 5000L + 200L, vec(1, 0.02f * i, tiltAxis = 0)))
         }
         val clusters = Clusterer().cluster(samples)
         assertEquals(2, clusters.size)
-        assertEquals(4, clusters[0].size)
-        assertEquals(4, clusters[1].size)
+        assertTrue(clusters.all { it.size == 3 })
     }
 
     @Test
-    fun `singleton dropped when cast is big enough to prune`() {
+    fun `gradual drift chains into one person`() {
+        // A↔B cosine distance is 0.50 (beyond eps 0.45): no direct link.
+        // But M sits within eps of both, so density chaining unites all 9.
+        // This is the medium→close-up healing path for real footage.
+        val a = listOf(0L, 200L, 400L).map { sample(it, floatArrayOf(1f, 0f, 0f)) }
+        val m = listOf(5000L, 5200L, 5400L).map { sample(it, floatArrayOf(0.75f, 0.6614f, 0f)) }
+        val b = listOf(10000L, 10200L, 10400L).map { sample(it, floatArrayOf(0.5f, 0.866f, 0f)) }
+        val clusters = Clusterer().cluster(a + m + b)
+        assertEquals(1, clusters.size)
+        assertEquals(9, clusters[0].size)
+    }
+
+    @Test
+    fun `gap without bridge stays split`() {
+        val a = listOf(0L, 200L, 400L).map { sample(it, floatArrayOf(1f, 0f, 0f)) }
+        val b = listOf(5000L, 5200L, 5400L).map { sample(it, floatArrayOf(0.5f, 0.866f, 0f)) }
+        val clusters = Clusterer().cluster(a + b)
+        assertEquals(2, clusters.size)
+    }
+
+    @Test
+    fun `overlapping similar faces share one cluster`() {
+        // No time guard in DBSCAN: co-occurring faces this similar are one
+        // density region. Distinct co-stars separate by DISTANCE (their
+        // cross-identity similarity is far lower), not by screen time.
+        val xs = listOf(0L, 200L, 400L).map { sample(it, floatArrayOf(1f, 0f, 0f)) }
+        val ys = listOf(100L, 300L, 500L).map {
+            sample(it, floatArrayOf(0.95f, 0.3122f, 0f))
+        }
+        val clusters = Clusterer().cluster(xs + ys)
+        assertEquals(1, clusters.size)
+        assertEquals(6, clusters[0].size)
+    }
+
+    @Test
+    fun `lone noise is dropped in a big cast`() {
         val samples = mutableListOf<FaceSample>()
         repeat(3) { i ->
             samples.add(sample(i * 5000L, vec(0, 0.02f * i)))
             samples.add(sample(i * 5000L + 200L, vec(1, 0.02f * i, tiltAxis = 0)))
             samples.add(sample(i * 5000L + 400L, vec(2, 0.02f * i, tiltAxis = 0)))
         }
-        // One stray false detection, far from everyone (negative octant:
-        // cosine with any axis-aligned cast member is ≈ -0.58).
         samples.add(sample(60_000L, floatArrayOf(-0.5774f, -0.5774f, -0.5774f)))
         val clusters = Clusterer().cluster(samples)
         assertEquals(3, clusters.size)
@@ -63,113 +98,20 @@ class ClustererTest {
     }
 
     @Test
-    fun `singleton kept for tiny casts (no hollowing out solos)`() {
-        val samples = mutableListOf(
-            sample(0L, vec(0)),
-            sample(5000L, vec(0, 0.05f)),
-            // Brief second person, single frame.
-            sample(10_000L, vec(1)),
-        )
-        val clusters = Clusterer(minFaces = 3).cluster(samples)
+    fun `tiny cast keeps noise as people`() {
+        val trio = listOf(0L, 200L, 400L).map { sample(it, floatArrayOf(1f, 0f, 0f)) }
+        val stray = sample(60_000L, floatArrayOf(-0.5774f, -0.5774f, -0.5774f))
+        val clusters = Clusterer().cluster(trio + stray)
         assertEquals(2, clusters.size)
     }
 
     @Test
-    fun `near-duplicate split is merged back`() {
-        // cos(A1, A2) = 0.90 < join 0.95 → split, but ≥ merge 0.90 → merged.
-        val a1 = sample(0L, vec(0))
-        val a2 = sample(5000L, floatArrayOf(0.90f, 0.4359f, 0f))
-        val b = sample(10_000L, vec(1))
-        val clusters = Clusterer(threshold = 0.95f, mergeThreshold = 0.90f, minFaces = 1)
-            .cluster(listOf(a1, a2, b))
-        assertEquals(2, clusters.size)
-        assertEquals(2, clusters.first { c -> c.any { it.tsMs == 0L } }.size)
-    }
-
-    @Test
-    fun `moderately similar non-overlapping pair merges via temporal guard`() {
-        // cos ≈ 0.52: below the 0.55 join bar (stays split there) but above
-        // the 0.50 merge bar — and with no shared screen time, the guarded
-        // merge reunites them. Regression test for medium-vs-close-up splits.
-        val a = sample(0L, floatArrayOf(1f, 0f, 0f))
-        val b = sample(5000L, floatArrayOf(0.52f, 0.8537f, 0f))
-        val clusters = Clusterer(minFaces = 1).cluster(listOf(a, b))
+    fun `non-finite embeddings are filtered, never poison neighbours`() {
+        val trio = listOf(0L, 200L, 400L).map { sample(it, floatArrayOf(1f, 0f, 0f)) }
+        val nan = sample(5000L, floatArrayOf(Float.NaN, 0f, 0f))
+        val clusters = Clusterer().cluster(trio + nan)
         assertEquals(1, clusters.size)
-        assertEquals(2, clusters[0].size)
-    }
-
-    @Test
-    fun `overlapping clusters never merge despite similar centroids`() {
-        // X and Y look alike (cos 0.95) AND share screen time — the guarded
-        // merge must refuse: same person can't be two faces at once. This is
-        // what protects the brief's shared frames (A+B, C+D).
-        val xs = listOf(0L, 200L, 400L).map { sample(it, floatArrayOf(1f, 0f, 0f)) }
-        val ys = listOf(100L, 300L, 500L).map {
-            sample(it, floatArrayOf(0.95f, 0.3122f, 0f))
-        }
-        val clusters = Clusterer(threshold = 0.99f, mergeThreshold = 0.90f, minFaces = 1)
-            .cluster(xs + ys)
-        assertEquals(2, clusters.size)
-    }
-
-    @Test
-    fun `established clusters below 0 point 58 stay separate`() {
-        // Centroid sim ≈0.56 with disjoint screen time: merged under the old
-        // 0.50 bar, correctly kept apart now. Device logcat showed healthy
-        // big clusters agreeing at 0.51–0.55 — merging those eats real people.
-        val a = listOf(0L, 5000L, 10000L).map { sample(it, floatArrayOf(1f, 0f, 0f)) }
-        val b = listOf(30000L, 35000L, 40000L)
-            .map { sample(it, floatArrayOf(0.56f, 0.828f, 0f)) }
-        val clusters = Clusterer(threshold = 0.99f).cluster(a + b)
-        assertEquals(2, clusters.size)
-    }
-
-    @Test
-    fun `never-alone fragment rejoins after centroid migration`() {
-        // The dissolve-rescue path: F can never join directly (sim 0.53 to
-        // the early centroid) and the general merge bar plus the overlap
-        // block both refuse — but once Y-samples migrate the big centroid
-        // toward F, dissolving each fragment sample clears the 0.55
-        // duplicate-grade bar. Encodes the shared-frame orphan rescue.
-        // (Y sits nearer X than F so it joins big instead of the fragment.)
-        val big = listOf(0L, 500L, 1000L).map { sample(it, floatArrayOf(1f, 0f, 0f)) } +
-            listOf(1800L, 2000L).map { sample(it, floatArrayOf(0.9f, 0.4359f, 0f)) }
-        val frag = listOf(1200L, 1400L, 1600L)
-            .map { sample(it, floatArrayOf(0.53f, 0.8479f, 0f)) }
-        val clusters = Clusterer().cluster(big + frag)
-        assertEquals(1, clusters.size)
-        assertEquals(8, clusters[0].size)
-    }
-
-    @Test
-    fun `sub-threshold never-alone fragment is dropped, not personified`() {
-        // Same setup as above but the fragment sits at sim 0.50: below every
-        // bar. It must vanish (not survive as a ×1 bogus person), while the
-        // established cluster is untouched.
-        val big = listOf(0L, 500L, 1000L, 1500L, 2000L)
-            .map { sample(it, floatArrayOf(1f, 0f, 0f)) }
-        val frag = listOf(200L, 600L, 1000L)
-            .map { sample(it, floatArrayOf(0.5f, 0.866f, 0f)) }
-        val clusters = Clusterer().cluster(big + frag)
-        assertEquals(1, clusters.size)
-        assertEquals(5, clusters[0].size)
-    }
-
-    @Test
-    fun `pair survives pruning in a big cast`() {
-        // minFaces = 2: a brief appearance with two surviving faces is a
-        // person, not noise. Only lone singletons are pruned.
-        val samples = mutableListOf<FaceSample>()
-        repeat(3) { i ->
-            samples.add(sample(i * 5000L, vec(0, 0.02f * i)))
-            samples.add(sample(i * 5000L + 200L, vec(1, 0.02f * i, tiltAxis = 0)))
-            samples.add(sample(i * 5000L + 400L, vec(2, 0.02f * i, tiltAxis = 0)))
-        }
-        val neg = floatArrayOf(-0.5774f, -0.5774f, -0.5774f)
-        samples.add(sample(60_000L, neg))
-        samples.add(sample(60_200L, neg))
-        val clusters = Clusterer().cluster(samples)
-        assertEquals(4, clusters.size)
+        assertEquals(3, clusters[0].size)
     }
 
     @Test
@@ -179,9 +121,12 @@ class ClustererTest {
 
     @Test
     fun `clusters sorted by first appearance`() {
-        val late = sample(30_000L, vec(0))
-        val early = sample(1000L, vec(1))
-        val clusters = Clusterer().cluster(listOf(late, early, sample(31_000L, vec(0, 0.02f))))
+        val late = listOf(30_000L, 30_200L, 30_400L)
+            .map { sample(it, floatArrayOf(1f, 0f, 0f)) }
+        val early = listOf(1000L, 1200L, 1400L)
+            .map { sample(it, floatArrayOf(0f, 1f, 0f)) }
+        val clusters = Clusterer().cluster(late + early)
+        assertEquals(2, clusters.size)
         assertEquals(1000L, clusters[0].minOf { it.tsMs })
     }
 }
@@ -240,5 +185,15 @@ class AppearanceSegmenterTest {
     @Test
     fun `empty input gives empty output`() {
         assertTrue(AppearanceSegmenter.segment(emptyList()).isEmpty())
+    }
+
+    @Test
+    fun `overlaps detects shared screen time`() {
+        val a = AppearanceSegmenter.segment(listOf(0L, 200L, 400L).map(::sample))
+        val b = AppearanceSegmenter.segment(listOf(200L, 400L, 600L).map(::sample))
+        val c = AppearanceSegmenter.segment(listOf(5000L, 5200L, 5400L).map(::sample))
+        assertTrue(AppearanceSegmenter.overlaps(a, b))
+        assertTrue(!AppearanceSegmenter.overlaps(a, c))
+        assertTrue(!AppearanceSegmenter.overlaps(a, emptyList()))
     }
 }

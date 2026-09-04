@@ -66,6 +66,8 @@ dependencies {
     implementation(libs.tflite.api)
     implementation(libs.tflite.support)
     implementation(libs.datastore.preferences)
+    // Face clustering: Smile DBSCAN (LGPL-3.0), pure JVM, offline.
+    implementation(libs.smile.core)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)

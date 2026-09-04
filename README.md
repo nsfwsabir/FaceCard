@@ -35,27 +35,24 @@ No API keys, no network, no model downloads — everything ships in the APK.
 | Face detection | **ML Kit face detection, bundled model** (`com.google.mlkit:face-detection:16.1.5`) — accurate mode, all classifications (eyes + smile), tracking IDs, min face size 0.12. Bundled (not the Play-Services thin client) so it works offline on first launch |
 | Blur gate | Laplacian variance, no OpenCV: frame < 40 → whip-pan drop (counts for nobody); face < 60 → dropped from counting *and* best shots |
 | Embedding | **MobileFaceNet, 112×112 → 192-d float32** (`assets/mobilefacenet.tflite`, via MCarlomagno/FaceRecognitionAuth, BSD-3-Clause; MobileFaceNet architecture by deepinsight). Pixels to [-1, 1]; output is unit-norm → cosine = dot. Validated with LiteRT: `input[1,112,112,3] fp32 → embeddings[1,192] fp32`, ‖emb‖ ≈ 1.0 |
-| Clustering | Greedy incremental on cosine similarity, **τ = 0.55**; two-tier merge (0.58 established / 0.50 tiny-fragment rescue); never-alone fragments dissolve into established people; singleton prune guarded for small casts |
+| Clustering | **Smile DBSCAN** (`com.github.haifengl:smile-core:2.6.0`, LGPL-3.0, pure JVM, offline) over cosine distance, eps 0.45 · minPts 3 — density chaining heals gradual drift, native noise labels isolate false hits |
 | Appearances | Per-person segments: ≤1500 ms gap bridged (mid-appearance detection holes), ≥3 frames (0.6 s) to count — flicker/whip-pans don't inflate counts; shared frames count once per person |
 | Best shot | Solo-frame candidates preferred (shared frames drag neighbours into the tile); 0.30 frontality + 0.30 sharpness + 0.20 eyes-open + 0.15 smile + 0.05 size, with vetoes (closed eyes ×0.2, clipped ×0.3, profile ×0.5, tiny face ×0.5). Full-res re-extract, generous crop (2.4× face box, 1.8× fallback for shared frames — never a tight face crop) |
 | Collage | 1080×1920 story canvas (hero/split/editorial/mosaic by headcount). The preview displays the exact export bitmap |
 
 ### Similarity threshold chosen
 
-**Cosine τ = 0.55** (`Clusterer.COSINE_THRESHOLD`). The join bar stays
-strict so distinct people never mix (the graded failure mode); harder
-same-person pairs are reunited one level down by a **two-tier merge**:
-established clusters need centroid sim ≥ 0.58 with disjoint screen time
-(big centroids agree spuriously in the 0.50s), while tiny fragments get a
-0.50 rescue bar with overlap allowed. A small cluster with ZERO solo screen
-time (every face co-occurs with established people) dissolves sample by
-sample into the nearest established cluster — shared-frame debris, not a
-person. Embedding crops are de-rotated by head roll first so tilted faces
-match their upright selves. Lone-singleton prune (pairs survive; skipped
-for casts < 3) absorbs stray false detections. Merge/prune/dissolve
-decisions log to logcat under `FaceCard` for tuning. Tune in one place if
-your footage differs: lower τ merges lookalikes, higher τ splits one person
-in two.
+**Cosine eps 0.45, minPts 3** (`Clusterer.COSINE_THRESHOLD = 0.55`,
+`MIN_FACES_PER_CLUSTER = 3`). Embeddings are L2-unit-norm, so cosine
+distance equals Euclidean distance up to scale (d² = 2(1−cos)) — Smile's
+KD-tree `DBSCAN.fit` runs directly on the vectors with radius
+√(2·0.45) ≈ 0.95, no custom distance code. Density chaining reunites
+gradual drift (medium shot → close-up across frames) when intermediate
+frames exist; lone noise in a big cast is dropped, while tiny casts keep
+everything (recall over precision). Tune at the knee of a k-NN distance
+plot (standard DBSCAN procedure) and re-verify against Sample 1 (5 / 20):
+lower eps merges lookalikes, higher eps splits one person in two.
+Merge/prune decisions log to logcat under `FaceCard` for tuning.
 
 ### Counting contract
 
