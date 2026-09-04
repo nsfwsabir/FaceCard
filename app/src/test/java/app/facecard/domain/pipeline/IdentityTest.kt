@@ -8,11 +8,16 @@ import kotlin.math.sqrt
 
 class ClustererTest {
 
-    /** Builds a unit vector leaning mostly along [axis] with slight [tilt]. */
+    /**
+     * Builds a unit vector leaning mostly along [axis] with slight [tilt].
+     * NOTE: [tiltAxis] must differ from [axis] — writing the tilt onto the
+     * axis zeroes it (0/0 = NaN), which once silently poisoned these tests.
+     */
     private fun vec(axis: Int, tilt: Float = 0f, tiltAxis: Int = 1): FloatArray {
         val v = FloatArray(3)
         v[axis] = 1f
-        v[tiltAxis] = tilt
+        val ta = if (tiltAxis == axis) (axis + 1) % 3 else tiltAxis
+        v[ta] = tilt
         var n = 0f
         for (x in v) n += x * x
         n = sqrt(n)
@@ -105,6 +110,39 @@ class ClustererTest {
         val clusters = Clusterer(threshold = 0.99f, mergeThreshold = 0.90f, minFaces = 1)
             .cluster(xs + ys)
         assertEquals(2, clusters.size)
+    }
+
+    @Test
+    fun `tiny overlapping orphan is absorbed by the big cluster`() {
+        // Big cast member present across [0,800]; a 3-sample fragment at
+        // [200,600] (sim 0.60) overlaps it — but a fragment that small is
+        // drifted debris, not a distinct co-occurring person. Encodes the
+        // shared-frame orphan rescue (×1 bogus-person fix).
+        val big = listOf(0L, 200L, 400L, 600L, 800L)
+            .map { sample(it, floatArrayOf(1f, 0f, 0f)) }
+        val orphan = listOf(200L, 400L, 600L)
+            .map { sample(it, floatArrayOf(0.6f, 0.8f, 0f)) }
+        val clusters = Clusterer(threshold = 0.9f, mergeThreshold = 0.5f, minFaces = 4)
+            .cluster(big + orphan)
+        assertEquals(1, clusters.size)
+        assertEquals(8, clusters[0].size)
+    }
+
+    @Test
+    fun `pair survives pruning in a big cast`() {
+        // minFaces = 2: a brief appearance with two surviving faces is a
+        // person, not noise. Only lone singletons are pruned.
+        val samples = mutableListOf<FaceSample>()
+        repeat(3) { i ->
+            samples.add(sample(i * 5000L, vec(0, 0.02f * i)))
+            samples.add(sample(i * 5000L + 200L, vec(1, 0.02f * i, tiltAxis = 0)))
+            samples.add(sample(i * 5000L + 400L, vec(2, 0.02f * i, tiltAxis = 0)))
+        }
+        val neg = floatArrayOf(-0.5774f, -0.5774f, -0.5774f)
+        samples.add(sample(60_000L, neg))
+        samples.add(sample(60_200L, neg))
+        val clusters = Clusterer().cluster(samples)
+        assertEquals(4, clusters.size)
     }
 
     @Test

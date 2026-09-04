@@ -50,8 +50,13 @@ object AppearanceSegmenter {
         return out
     }
 
-    /** ≤1s gap = same segment (cuts in the samples sit well above this). */
-    const val GAP_TOL_MS = 1000L
+    /**
+     * ≤1.5s gap = same segment. Cuts between different appearances sit well
+     * above this, while mid-appearance detection holes (blink, turn,
+     * whip-pan blur runs at 5fps) sit below it. Too short a bridge splits
+     * one appearance into several (the ×6/×5 over-count failure).
+     */
+    const val GAP_TOL_MS = 1500L
 
     /** ≥3 valid frames ≈ 0.6s @5fps — shorter runs are flicker. */
     const val MIN_SEGMENT_LEN = 3

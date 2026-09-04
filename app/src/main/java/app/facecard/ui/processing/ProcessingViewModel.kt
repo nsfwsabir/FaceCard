@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.Rect
 import android.net.Uri
 import android.os.SystemClock
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -215,7 +216,8 @@ class ProcessingViewModel(
                     etaMs = null,
                 )
                 val people = withContext(Dispatchers.Default) {
-                    Clusterer().cluster(samples).mapIndexed { i, members ->
+                    Clusterer().cluster(samples) { msg -> Log.d("FaceCard", msg) }
+                        .mapIndexed { i, members ->
                         val best = QualityScorer.best(members)
                         Person(
                             id = i,
@@ -226,7 +228,19 @@ class ProcessingViewModel(
                         )
                     }
                 }
-                _result.value = ProcessResult(people)
+                val result = ProcessResult(people)
+                _result.value = result
+                Log.d(
+                    "FaceCard",
+                    "result: ${result.personCount} people, " +
+                        "${result.totalAppearances} appearances; " +
+                        people.joinToString("; ") { p ->
+                            "${p.label} n=${p.samples.size} " +
+                                p.appearances.joinToString(",") {
+                                    "[${it.startMs}-${it.endMs}]"
+                                }
+                        },
+                )
                 _state.value = PipelineUiState.Running(
                     stage = PipelineStage.CLUSTER,
                     done = 1,
