@@ -41,6 +41,10 @@ android {
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.14"
     }
+    // .tflite must stay stored (not deflated) for AssetFileDescriptor mmap.
+    aaptOptions {
+        noCompress("tflite")
+    }
 }
 
 dependencies {

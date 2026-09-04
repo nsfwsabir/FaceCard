@@ -9,8 +9,15 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import app.facecard.data.face.BlurEstimator
 import app.facecard.data.face.MlKitFaceDetector
+import app.facecard.data.face.TfliteMobileFaceNet
 import app.facecard.data.face.largest
+import app.facecard.data.face.squareFaceCrop
 import app.facecard.data.video.FrameExtractor
+import app.facecard.domain.model.FaceSample
+import app.facecard.domain.model.Person
+import app.facecard.domain.model.ProcessResult
+import app.facecard.domain.pipeline.AppearanceSegmenter
+import app.facecard.domain.pipeline.Clusterer
 import app.facecard.domain.pipeline.PipelineStage
 import app.facecard.domain.pipeline.PipelineUiState
 import kotlinx.coroutines.CancellationException
@@ -22,6 +29,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.min
 
 /** Detection counters shown on the Done screen (Phase 5 replaces with people UI). */
 data class DetectStats(
@@ -33,11 +41,16 @@ data class DetectStats(
 )
 
 /**
- * Phase 3: two streaming passes over the video —
- * pass 1 EXTRACT (decode + count + thumbnail), pass 2 DETECT (re-decode,
- * blur-gate, ML Kit, per-face blur filter). Re-decoding costs ~1–2s for a
- * 30s clip and keeps peak memory flat (one 640px bitmap at a time) while
- * keeping stage progress honest. Phase 4 chains EMBED onto pass 2.
+ * Phase 4: two streaming passes over the video, all heavy work confined to
+ * Dispatchers.Default (viewModelScope itself is Main — collecting there
+ * would jank the progress UI).
+ *
+ * - Pass 1 EXTRACT: decode + count + thumbnail.
+ * - Pass 2 DETECT + EMBED: re-decode, blur-gate, ML Kit, per-face blur
+ *   filter, 112px crop → MobileFaceNet → FaceSample. One 640px bitmap
+ *   (plus transient 112px crops) alive at a time.
+ * - CLUSTER (in-memory, ms): greedy cosine clustering + appearance
+ *   segmentation → [ProcessResult] (people + appearance counts).
  */
 class ProcessingViewModel(
     private val videoUri: Uri?,
@@ -54,6 +67,9 @@ class ProcessingViewModel(
     private val _stats = MutableStateFlow<DetectStats?>(null)
     val stats: StateFlow<DetectStats?> = _stats
 
+    private val _result = MutableStateFlow<ProcessResult?>(null)
+    val result: StateFlow<ProcessResult?> = _result
+
     private var job: Job? = null
 
     fun start() {
@@ -64,6 +80,7 @@ class ProcessingViewModel(
             return
         }
         job = viewModelScope.launch {
+            var stage = PipelineStage.EXTRACT
             try {
                 val meta = extractor.metadata(uri)
                 if (meta.durationMs <= 0) {
@@ -76,28 +93,35 @@ class ProcessingViewModel(
                 // ---- Pass 1: EXTRACT (decode only) ----
                 var count = 0
                 val t0 = SystemClock.elapsedRealtime()
-                extractor.frames(uri).collect { frame ->
-                    currentCoroutineContext().ensureActive()
-                    count++
-                    if (_thumbnail.value == null) {
-                        _thumbnail.value = Bitmap.createScaledBitmap(
-                            frame.bitmap,
-                            180,
-                            (180f * frame.bitmap.height / frame.bitmap.width).toInt()
-                                .coerceAtLeast(1),
-                            true,
+                withContext(Dispatchers.Default) {
+                    extractor.frames(uri).collect { frame ->
+                        currentCoroutineContext().ensureActive()
+                        count++
+                        if (_thumbnail.value == null) {
+                            _thumbnail.value = Bitmap.createScaledBitmap(
+                                frame.bitmap,
+                                180,
+                                (180f * frame.bitmap.height / frame.bitmap.width).toInt()
+                                    .coerceAtLeast(1),
+                                true,
+                            )
+                        }
+                        _state.value = PipelineUiState.Running(
+                            stage = PipelineStage.EXTRACT,
+                            done = count,
+                            total = total,
+                            etaMs = eta(SystemClock.elapsedRealtime() - t0, count, total),
                         )
+                        frame.bitmap.recycle()
                     }
-                    _state.value = PipelineUiState.Running(
-                        stage = PipelineStage.EXTRACT,
-                        done = count,
-                        total = total,
-                        etaMs = eta(SystemClock.elapsedRealtime() - t0, count, total),
-                    )
-                    frame.bitmap.recycle()
                 }
-                // ---- Pass 2: DETECT (re-decode + blur gate + ML Kit) ----
+                // ---- Pass 2: DETECT + EMBED ----
+                stage = PipelineStage.DETECT
                 val detector = MlKitFaceDetector()
+                // Lazily created here so a missing model asset fails in
+                // EMBED reporting, not before any progress is shown.
+                val embedder = TfliteMobileFaceNet(extractor.appContext)
+                val samples = mutableListOf<FaceSample>()
                 try {
                     var framesWithFaces = 0
                     var facesTotal = 0
@@ -105,38 +129,59 @@ class ProcessingViewModel(
                     var blurredFaces = 0
                     var d = 0
                     val t1 = SystemClock.elapsedRealtime()
-                    extractor.frames(uri).collect { frame ->
-                        currentCoroutineContext().ensureActive()
-                        d++
-                        val bmp = frame.bitmap
-                        if (BlurEstimator.sharpnessOf(bmp) < BlurEstimator.FRAME_MIN_VARIANCE) {
-                            whipDrops++
-                        } else {
-                            val faces = withContext(Dispatchers.Default) {
-                                detector.detect(bmp)
-                            }.largest()
-                            var kept = 0
-                            for (f in faces) {
-                                val region = Rect(f.left, f.top, f.right, f.bottom)
-                                if (BlurEstimator.sharpnessOf(bmp, region, 64) <
-                                    BlurEstimator.FACE_MIN_VARIANCE
-                                ) {
-                                    blurredFaces++
-                                } else {
-                                    kept++
+                    withContext(Dispatchers.Default) {
+                        extractor.frames(uri).collect { frame ->
+                            currentCoroutineContext().ensureActive()
+                            d++
+                            val bmp = frame.bitmap
+                            if (BlurEstimator.sharpnessOf(bmp) < BlurEstimator.FRAME_MIN_VARIANCE) {
+                                whipDrops++
+                            } else {
+                                // Embedding piggybacks on the DETECT stage row:
+                                // detection (~25ms) dominates, embedding (~20ms)
+                                // follows per face before recycle.
+                                val faces = detector.detect(bmp).largest()
+                                var kept = 0
+                                for (f in faces) {
+                                    val region = Rect(f.left, f.top, f.right, f.bottom)
+                                    val sharp = BlurEstimator.sharpnessOf(bmp, region, 64)
+                                    if (sharp < BlurEstimator.FACE_MIN_VARIANCE) {
+                                        blurredFaces++
+                                    } else {
+                                        val crop = squareFaceCrop(bmp, f)
+                                        val emb = embedder.embed(crop)
+                                        crop.recycle()
+                                        samples.add(
+                                            FaceSample(
+                                                tsMs = frame.timestampMs,
+                                                embedding = emb,
+                                                sharpness = sharp,
+                                                eulerY = f.eulerY,
+                                                eulerZ = f.eulerZ,
+                                                eyeOpen = min(
+                                                    f.leftEyeOpen ?: 0.5f,
+                                                    f.rightEyeOpen ?: 0.5f,
+                                                ),
+                                                smiling = f.smiling ?: 0.5f,
+                                                edgeClipped = f.edgeClipped,
+                                                area = f.area,
+                                                trackingId = f.trackingId,
+                                            ),
+                                        )
+                                        kept++
+                                    }
                                 }
+                                if (kept > 0) framesWithFaces++
+                                facesTotal += kept
                             }
-                            if (kept > 0) framesWithFaces++
-                            facesTotal += kept
-                            // Phase 4: embed each kept face here, before recycle.
+                            _state.value = PipelineUiState.Running(
+                                stage = PipelineStage.DETECT,
+                                done = d,
+                                total = total,
+                                etaMs = eta(SystemClock.elapsedRealtime() - t1, d, total),
+                            )
+                            bmp.recycle()
                         }
-                        _state.value = PipelineUiState.Running(
-                            stage = PipelineStage.DETECT,
-                            done = d,
-                            total = total,
-                            etaMs = eta(SystemClock.elapsedRealtime() - t1, d, total),
-                        )
-                        bmp.recycle()
                     }
                     _stats.value = DetectStats(
                         frames = count,
@@ -147,7 +192,33 @@ class ProcessingViewModel(
                     )
                 } finally {
                     detector.close()
+                    embedder.close()
                 }
+                // ---- CLUSTER + SEGMENT (in-memory) ----
+                stage = PipelineStage.CLUSTER
+                _state.value = PipelineUiState.Running(
+                    stage = PipelineStage.CLUSTER,
+                    done = 0,
+                    total = 1,
+                    etaMs = null,
+                )
+                val people = withContext(Dispatchers.Default) {
+                    Clusterer().cluster(samples).mapIndexed { i, members ->
+                        Person(
+                            id = i,
+                            label = "Person ${'A' + i}",
+                            samples = members,
+                            appearances = AppearanceSegmenter.segment(members),
+                        )
+                    }
+                }
+                _result.value = ProcessResult(people)
+                _state.value = PipelineUiState.Running(
+                    stage = PipelineStage.CLUSTER,
+                    done = 1,
+                    total = 1,
+                    etaMs = null,
+                )
                 _state.value = PipelineUiState.Done(meta.copy(frameCount = count))
             } catch (e: CancellationException) {
                 _state.value = PipelineUiState.Cancelled
@@ -155,7 +226,7 @@ class ProcessingViewModel(
             } catch (e: Exception) {
                 _state.value = PipelineUiState.Error(
                     e.message ?: "Processing failed",
-                    PipelineStage.EXTRACT,
+                    stage,
                 )
             }
         }

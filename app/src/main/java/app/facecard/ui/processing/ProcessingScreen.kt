@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.facecard.data.video.MediaMetadataRetrieverFrameExtractor
+import app.facecard.domain.model.ProcessResult
 import app.facecard.domain.model.VideoMeta
 import app.facecard.domain.pipeline.PipelineStage
 import app.facecard.domain.pipeline.PipelineUiState
@@ -68,6 +69,7 @@ fun ProcessingScreen(
     val state by vm.state.collectAsStateWithLifecycle()
     val thumbnail by vm.thumbnail.collectAsStateWithLifecycle()
     val stats by vm.stats.collectAsStateWithLifecycle()
+    val result by vm.result.collectAsStateWithLifecycle()
 
     LaunchedEffect(videoUri) { vm.start() }
 
@@ -100,6 +102,7 @@ fun ProcessingScreen(
                     meta = s.meta,
                     thumbnail = thumbnail,
                     stats = stats,
+                    result = result,
                     onContinue = onDone,
                     onRetry = { vm.start() },
                 )
@@ -201,6 +204,7 @@ private fun DoneBody(
     meta: VideoMeta,
     thumbnail: android.graphics.Bitmap?,
     stats: DetectStats?,
+    result: ProcessResult?,
     onContinue: () -> Unit,
     onRetry: () -> Unit,
 ) {
@@ -234,6 +238,14 @@ private fun DoneBody(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                if (result != null) {
+                    Text(
+                        "${result.personCount} people · " +
+                            "${result.totalAppearances} appearances",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
             }
         }
     }

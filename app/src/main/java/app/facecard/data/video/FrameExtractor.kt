@@ -28,6 +28,9 @@ data class RawFrame(
 )
 
 interface FrameExtractor {
+    /** Application context (for ContentResolver + asset loading downstream). */
+    val appContext: Context
+
     suspend fun metadata(uri: Uri): VideoMeta
 
     /** Cold streaming flow — memory-safe for 150+ frames. Runs on Dispatchers.IO. */
@@ -51,7 +54,7 @@ interface FrameExtractor {
 }
 
 class MediaMetadataRetrieverFrameExtractor(
-    private val appContext: Context,
+    override val appContext: Context,
 ) : FrameExtractor {
 
     override suspend fun metadata(uri: Uri): VideoMeta = withContext(Dispatchers.IO) {
