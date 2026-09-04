@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Face
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
@@ -21,6 +22,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -46,6 +48,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun HomeScreen(
     onVideoPicked: (Uri) -> Unit,
+    onAbout: () -> Unit,
     vm: HomeViewModel = viewModel(),
 ) {
     val context = LocalContext.current
@@ -66,7 +69,16 @@ fun HomeScreen(
         }
     }
     Scaffold(
-        topBar = { TopAppBar(title = { Text("facecard") }) },
+        topBar = {
+            TopAppBar(
+                title = { Text("facecard") },
+                actions = {
+                    IconButton(onClick = onAbout) {
+                        Icon(Icons.Rounded.Info, contentDescription = "About FaceCard")
+                    }
+                },
+            )
+        },
         snackbarHost = { SnackbarHost(snackbar) },
     ) { pad ->
         Column(
@@ -167,6 +179,6 @@ fun HomeScreen(
 @Composable
 private fun HomePreview() {
     FaceCardTheme(darkTheme = false, dynamicColor = false) {
-        HomeScreen(onVideoPicked = {})
+        HomeScreen(onVideoPicked = {}, onAbout = {})
     }
 }

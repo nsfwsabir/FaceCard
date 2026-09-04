@@ -1,11 +1,15 @@
 package app.facecard.ui.collage
 
+import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import app.facecard.data.export.CollageRenderer
+import app.facecard.data.export.MediaStoreSaver
+import app.facecard.data.export.ShareHelper
 import app.facecard.data.export.TileInput
 import app.facecard.data.export.generousCrop
 import app.facecard.data.video.FrameExtractor
@@ -42,7 +46,18 @@ class CollageViewModel(
     private val _ui = MutableStateFlow<Ui>(Ui.Idle)
     val ui: StateFlow<Ui> = _ui
 
+    sealed interface SaveUi {
+        data object Idle : SaveUi
+        data object Saving : SaveUi
+        data class Saved(val uri: Uri) : SaveUi
+        data class Error(val message: String) : SaveUi
+    }
+
+    private val _saveUi = MutableStateFlow<SaveUi>(SaveUi.Idle)
+    val saveUi: StateFlow<SaveUi> = _saveUi
+
     private var job: Job? = null
+    private var saveJob: Job? = null
 
     fun render() {
         if (job?.isActive == true) return
@@ -87,8 +102,35 @@ class CollageViewModel(
 
     override fun onCleared() {
         job?.cancel()
+        saveJob?.cancel()
         (_ui.value as? Ui.Done)?.bitmap?.recycle()
         super.onCleared()
+    }
+
+    /** Saves the rendered collage (the preview bitmap) to Pictures/FaceCard. */
+    fun save(appContext: Context) {
+        val bitmap = (_ui.value as? Ui.Done)?.bitmap
+        if (bitmap == null || saveJob?.isActive == true) return
+        saveJob = viewModelScope.launch {
+            _saveUi.value = SaveUi.Saving
+            try {
+                val uri = MediaStoreSaver.save(appContext, bitmap, meta.displayName)
+                _saveUi.value = SaveUi.Saved(uri)
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                _saveUi.value = SaveUi.Error(e.message ?: "Couldn't save to gallery")
+            }
+        }
+    }
+
+    /** Builds the share-sheet intent for the rendered collage. Null if not rendered yet. */
+    suspend fun shareIntent(appContext: Context): Intent? {
+        val bitmap = (_ui.value as? Ui.Done)?.bitmap ?: return null
+        return ShareHelper.shareIntent(appContext, bitmap, meta.displayName)
+    }
+
+    fun acknowledgeSave() {
+        _saveUi.value = SaveUi.Idle
     }
 }
 

@@ -1,5 +1,11 @@
 package app.facecard.ui.collage
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -30,6 +36,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.facecard.data.FaceCardApp
@@ -37,8 +44,8 @@ import app.facecard.data.video.MediaMetadataRetrieverFrameExtractor
 import kotlinx.coroutines.launch
 
 /**
- * Phase 5: renders the real collage bitmap and previews it.
- * The SAME bitmap is written to disk on save (Phase 6) — parity guaranteed.
+ * Renders the collage bitmap (preview == export), with working
+ * Save-to-gallery and system share-sheet actions.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -50,9 +57,6 @@ fun CollageScreen(onBack: () -> Unit) {
     val uri by app.resultStore.videoUri.collectAsState()
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-    val soon: () -> Unit = {
-        scope.launch { snackbar.showSnackbar("Save & Share land in Phase 6.") }
-    }
 
     Scaffold(
         topBar = { TopAppBar(title = { Text("Collage") }) },
@@ -86,7 +90,46 @@ fun CollageScreen(onBack: () -> Unit) {
             ),
         )
         val uiState by vm.ui.collectAsStateWithLifecycle()
+        val saveState by vm.saveUi.collectAsStateWithLifecycle()
         LaunchedEffect(m.uri) { vm.render() }
+
+        // Write permission only exists pre-29; SAF/MediaStore need none on 29+.
+        val permissionLauncher = rememberLauncherForActivityResult(
+            ActivityResultContracts.RequestPermission(),
+        ) { granted ->
+            if (granted) {
+                vm.save(context.applicationContext)
+            } else {
+                scope.launch {
+                    snackbar.showSnackbar("Gallery permission denied — try Share instead.")
+                }
+            }
+        }
+        fun onSave() {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q &&
+                ContextCompat.checkSelfPermission(
+                    context, Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                ) != PackageManager.PERMISSION_GRANTED
+            ) {
+                permissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            } else {
+                vm.save(context.applicationContext)
+            }
+        }
+        LaunchedEffect(saveState) {
+            when (val s = saveState) {
+                is CollageViewModel.SaveUi.Saved ->
+                    snackbar.showSnackbar("Saved to Pictures/FaceCard.")
+                is CollageViewModel.SaveUi.Error ->
+                    snackbar.showSnackbar("Save failed: ${s.message}")
+                else -> Unit
+            }
+            if (saveState !is CollageViewModel.SaveUi.Idle &&
+                saveState !is CollageViewModel.SaveUi.Saving
+            ) {
+                vm.acknowledgeSave()
+            }
+        }
 
         Column(
             modifier = Modifier
@@ -120,8 +163,30 @@ fun CollageScreen(onBack: () -> Unit) {
                             .clip(MaterialTheme.shapes.large),
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Button(onClick = soon) { Text("Save to gallery") }
-                        OutlinedButton(onClick = soon) { Text("Share") }
+                        Button(
+                            onClick = ::onSave,
+                            enabled = saveState !is CollageViewModel.SaveUi.Saving,
+                        ) {
+                            Text(
+                                if (saveState is CollageViewModel.SaveUi.Saving) {
+                                    "Saving…"
+                                } else {
+                                    "Save to gallery"
+                                },
+                            )
+                        }
+                        OutlinedButton(onClick = {
+                            scope.launch {
+                                val intent = vm.shareIntent(context.applicationContext)
+                                if (intent != null) {
+                                    context.startActivity(
+                                        Intent.createChooser(intent, "Share collage"),
+                                    )
+                                } else {
+                                    snackbar.showSnackbar("Render the collage first.")
+                                }
+                            }
+                        }) { Text("Share") }
                     }
                     Text(
                         "Preview = export (same renderer).",

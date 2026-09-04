@@ -7,6 +7,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import app.facecard.ui.about.AboutScreen
 import app.facecard.ui.collage.CollageScreen
 import app.facecard.ui.home.HomeScreen
 import app.facecard.ui.processing.ProcessingScreen
@@ -17,6 +18,7 @@ object Routes {
     const val PROCESSING = "processing?uri={uri}"
     const val RESULTS = "results"
     const val COLLAGE = "collage"
+    const val ABOUT = "about"
 
     fun processing(uri: Uri): String = "processing?uri=${Uri.encode(uri.toString())}"
 }
@@ -26,7 +28,10 @@ fun FaceCardNav() {
     val nav = rememberNavController()
     NavHost(navController = nav, startDestination = Routes.HOME) {
         composable(Routes.HOME) {
-            HomeScreen(onVideoPicked = { uri -> nav.navigate(Routes.processing(uri)) })
+            HomeScreen(
+                onVideoPicked = { uri -> nav.navigate(Routes.processing(uri)) },
+                onAbout = { nav.navigate(Routes.ABOUT) },
+            )
         }
         composable(
             route = Routes.PROCESSING,
@@ -52,6 +57,9 @@ fun FaceCardNav() {
         }
         composable(Routes.COLLAGE) {
             CollageScreen(onBack = { nav.popBackStack() })
+        }
+        composable(Routes.ABOUT) {
+            AboutScreen(onBack = { nav.popBackStack() })
         }
     }
 }
