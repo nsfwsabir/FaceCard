@@ -67,6 +67,7 @@ fun ProcessingScreen(
     )
     val state by vm.state.collectAsStateWithLifecycle()
     val thumbnail by vm.thumbnail.collectAsStateWithLifecycle()
+    val stats by vm.stats.collectAsStateWithLifecycle()
 
     LaunchedEffect(videoUri) { vm.start() }
 
@@ -98,6 +99,7 @@ fun ProcessingScreen(
                 is PipelineUiState.Done -> DoneBody(
                     meta = s.meta,
                     thumbnail = thumbnail,
+                    stats = stats,
                     onContinue = onDone,
                     onRetry = { vm.start() },
                 )
@@ -198,6 +200,7 @@ private fun StageRow(label: String, state: StageState, detail: String? = null) {
 private fun DoneBody(
     meta: VideoMeta,
     thumbnail: android.graphics.Bitmap?,
+    stats: DetectStats?,
     onContinue: () -> Unit,
     onRetry: () -> Unit,
 ) {
@@ -235,7 +238,11 @@ private fun DoneBody(
         }
     }
     Text(
-        "Extraction works. Face detection plugs into this stream in Phase 3.",
+        stats?.let {
+            "Detection: ${it.facesTotal} faces in ${it.framesWithFaces}/${it.frames} frames · " +
+                "${it.whipPanDrops} whip-pan drops · ${it.blurredFaceDrops} blurry-face drops. " +
+                "Clustering plugs in next (Phase 4)."
+        } ?: "Extraction works. Face detection plugs into this stream in Phase 3.",
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
