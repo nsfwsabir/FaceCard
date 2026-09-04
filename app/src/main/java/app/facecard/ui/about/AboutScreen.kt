@@ -73,7 +73,8 @@ fun AboutScreen(onBack: () -> Unit) {
             }
             AboutCard("Key thresholds") {
                 Text("Cosine join τ = ${Clusterer.COSINE_THRESHOLD} " +
-                    "(merge ${Clusterer.COSINE_MERGE_THRESHOLD})")
+                    "(merge ${Clusterer.COSINE_MERGE_THRESHOLD}, " +
+                    "orphan rescue ${Clusterer.COSINE_ORPHAN_MERGE})")
                 Text("Blur: frame ≥ 40, face ≥ 60 (Laplacian variance)")
                 Text("Segment gap ≤ ${AppearanceSegmenter.GAP_TOL_MS}ms, " +
                     "min length ${AppearanceSegmenter.MIN_SEGMENT_LEN} frames")

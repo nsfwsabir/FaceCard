@@ -9,7 +9,12 @@ import kotlin.math.sqrt
  * and a handful of people. Pure Kotlin, JVM-tested.
  *
  * @param threshold cosine similarity at/above which a sample joins a cluster.
- * @param mergeThreshold centroid similarity for the post-merge rescue net.
+ * @param mergeThreshold centroid bar for merging two ESTABLISHED clusters
+ *   (both sizeable): deliberately high — big-cluster centroids go generic
+ *   and agree spuriously in the 0.50s (device logcat proved it).
+ * @param orphanMergeThreshold lower bar for rescues involving a TINY
+ *   fragment (≤ [TINY_ORPHAN_MAX] samples): overlap allowed, since a
+ *   fragment is debris, not a co-occurring person.
  * @param minFaces clusters smaller than this are pruned as noise — pairs
  *   survive (a brief but real appearance), lone singletons in a big cast
  *   don't. Pruning is skipped entirely when the video has fewer than 3
@@ -19,6 +24,7 @@ import kotlin.math.sqrt
 class Clusterer(
     val threshold: Float = COSINE_THRESHOLD,
     private val mergeThreshold: Float = COSINE_MERGE_THRESHOLD,
+    private val orphanMergeThreshold: Float = COSINE_ORPHAN_MERGE,
     private val minFaces: Int = MIN_FACES_PER_CLUSTER,
 ) {
 
@@ -50,20 +56,21 @@ class Clusterer(
             }
         }
 
-        // Post-merge rescue net for splits (profile vs frontal, medium vs
-        // close-up, blur drift). Two clusters visible SIMULTANEOUSLY (like the
-        // brief's shared frames A+B @10.1-11.5s, C+D @20.2-21.6s) can never
-        // merge — UNLESS one side is a tiny orphan: a 1–2 sample fragment
-        // overlapping a big cluster is drifted debris, not a distinct person
-        // (a real co-occurring person leaves many samples, not a fragment).
+        // Post-merge rescue net, two tiers. Established+established pairs
+        // (like the brief's shared frames A+B @10.1-11.5s, C+D @20.2-21.6s)
+        // need a HIGH bar plus disjoint screen time — big centroids agree
+        // spuriously down in the 0.50s. Tiny fragments get the LOW bar with
+        // overlap allowed: a 1–2 sample splinter is debris, never a
+        // co-occurring person (those leave many samples, not splinters).
         var merged = true
         while (merged) {
             merged = false
             outer@ for (i in clusters.indices) {
                 for (j in i + 1 until clusters.size) {
                     val sim = cosine(centroids[i], centroids[j])
-                    if (sim < mergeThreshold) continue
-                    val tiny = minOf(clusters[i].size, clusters[j].size) < minFaces
+                    val tiny = minOf(clusters[i].size, clusters[j].size) <= TINY_ORPHAN_MAX
+                    val bar = if (tiny) orphanMergeThreshold else mergeThreshold
+                    if (sim < bar) continue
                     val overlap = AppearanceSegmenter.overlaps(
                         AppearanceSegmenter.segment(clusters[i]),
                         AppearanceSegmenter.segment(clusters[j]),
@@ -104,6 +111,59 @@ class Clusterer(
         } else {
             kept.addAll(clusters)
         }
+
+        // Dissolve never-alone fragments: a small cluster (≤ DISSOLVE_MAX)
+        // with ZERO solo samples — every one of its faces co-occurs with
+        // established people — is shared-frame debris (the ×1 bogus-person
+        // failure), not a person. Each sample is reassigned to the nearest
+        // established cluster (≥ DISSOLVE_REASSIGN) or dropped. Clusters
+        // with any solo screen time are immune; if nobody is established,
+        // nothing dissolves (e.g. a video that is one single shared frame).
+        if (kept.size >= 2) {
+            val segs = kept.map { AppearanceSegmenter.segment(it) }
+            fun coveredByOthers(k: Int, ts: Long): Boolean =
+                segs.indices.any { o ->
+                    o != k && segs[o].any { ts in it.startMs..it.endMs }
+                }
+            val established = kept.indices.filter { k ->
+                kept[k].any { s -> !coveredByOthers(k, s.tsMs) }
+            }.toSet()
+            if (established.isNotEmpty()) {
+                val dissolved = kept.indices.filter { k ->
+                    k !in established && kept[k].size <= DISSOLVE_MAX_SIZE
+                }
+                // Recompute centroids for recipients (they only grow).
+                val recipientCentroid = kept.indices
+                    .filter { it in established }
+                    .associateWith { meanNormalized(kept[it]) }
+                    .toMutableMap()
+                for (k in dissolved.sortedDescending()) {
+                    var rescued = 0
+                    for (s in kept[k].sortedBy { it.tsMs }) {
+                        var best: Int? = null
+                        var bestSim = DISSOLVE_REASSIGN
+                        for (r in established) {
+                            val sim = cosine(s.embedding, recipientCentroid.getValue(r))
+                            if (sim >= bestSim) {
+                                bestSim = sim
+                                best = r
+                            }
+                        }
+                        if (best != null) {
+                            kept[best].add(s)
+                            recipientCentroid[best] = meanNormalized(kept[best])
+                            rescued++
+                        } else {
+                            logger?.invoke("dissolve-drop ts=${s.tsMs}")
+                        }
+                    }
+                    logger?.invoke(
+                        "dissolve cluster size=${kept[k].size} rescued=$rescued",
+                    )
+                    kept.removeAt(k)
+                }
+            }
+        }
         return kept.sortedBy { members -> members.minOf { it.tsMs } }
     }
 
@@ -116,11 +176,23 @@ class Clusterer(
          */
         const val COSINE_THRESHOLD = 0.55f
         /**
-         * Lower than the join bar on purpose: two clusters that NEVER share
-         * screen time and whose centroids still agree are almost certainly
-         * one split person (medium vs close-up, blur drift).
+         * Established+established merge bar. Device logcat showed big,
+         * healthy clusters agreeing at 0.51–0.55 with no screen overlap —
+         * below this, merging eats real people. Distinct people typically
+         * sit < 0.45; same-person drift clears 0.58 comfortably.
          */
-        const val COSINE_MERGE_THRESHOLD = 0.50f
+        const val COSINE_MERGE_THRESHOLD = 0.58f
+        /** Rescue bar for fragments (≤ [TINY_ORPHAN_MAX] samples). */
+        const val COSINE_ORPHAN_MERGE = 0.50f
+        /** At or below this size, a cluster counts as a fragment for merging. */
+        const val TINY_ORPHAN_MAX = 2
+        /**
+         * Never-alone clusters up to this size dissolve into established
+         * people; bigger ones are kept as-is (too much evidence to overrule).
+         */
+        const val DISSOLVE_MAX_SIZE = 12
+        /** Per-sample bar for dissolve reassignment into an established cluster. */
+        const val DISSOLVE_REASSIGN = 0.45f
         /**
          * Pairs survive pruning; only true singletons are noise-candidates
          * (and even those are reassigned when they resemble someone).

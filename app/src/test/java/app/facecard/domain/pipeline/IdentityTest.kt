@@ -113,17 +113,27 @@ class ClustererTest {
     }
 
     @Test
-    fun `tiny overlapping orphan is absorbed by the big cluster`() {
-        // Big cast member present across [0,800]; a 3-sample fragment at
-        // [200,600] (sim 0.60) overlaps it — but a fragment that small is
-        // drifted debris, not a distinct co-occurring person. Encodes the
-        // shared-frame orphan rescue (×1 bogus-person fix).
-        val big = listOf(0L, 200L, 400L, 600L, 800L)
+    fun `established clusters below 0 point 58 stay separate`() {
+        // Centroid sim ≈0.56 with disjoint screen time: merged under the old
+        // 0.50 bar, correctly kept apart now. Device logcat showed healthy
+        // big clusters agreeing at 0.51–0.55 — merging those eats real people.
+        val a = listOf(0L, 5000L, 10000L).map { sample(it, floatArrayOf(1f, 0f, 0f)) }
+        val b = listOf(30000L, 35000L, 40000L)
+            .map { sample(it, floatArrayOf(0.56f, 0.828f, 0f)) }
+        val clusters = Clusterer(threshold = 0.99f).cluster(a + b)
+        assertEquals(2, clusters.size)
+    }
+
+    @Test
+    fun `never-alone fragment dissolves into established people`() {
+        // Big cast member across [0,2000]; a 3-sample fragment living entirely
+        // inside that window (sim 0.50: below join AND general merge bars).
+        // Encodes the shared-frame orphan rescue (×1 bogus-person fix).
+        val big = listOf(0L, 500L, 1000L, 1500L, 2000L)
             .map { sample(it, floatArrayOf(1f, 0f, 0f)) }
-        val orphan = listOf(200L, 400L, 600L)
-            .map { sample(it, floatArrayOf(0.6f, 0.8f, 0f)) }
-        val clusters = Clusterer(threshold = 0.9f, mergeThreshold = 0.5f, minFaces = 4)
-            .cluster(big + orphan)
+        val frag = listOf(200L, 600L, 1000L)
+            .map { sample(it, floatArrayOf(0.5f, 0.866f, 0f)) }
+        val clusters = Clusterer().cluster(big + frag)
         assertEquals(1, clusters.size)
         assertEquals(8, clusters[0].size)
     }
