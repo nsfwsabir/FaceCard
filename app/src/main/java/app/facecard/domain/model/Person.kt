@@ -15,6 +15,8 @@ data class Person(
     val label: String,
     val samples: List<FaceSample>,
     val appearances: List<Appearance>,
+    /** Representative shot (QualityScorer.best at processing time). */
+    val best: FaceSample,
 ) {
     val appearanceCount: Int get() = appearances.size
 }

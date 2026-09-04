@@ -40,6 +40,12 @@ interface FrameExtractor {
         maxFrames: Int = MAX_FRAMES,
     ): Flow<RawFrame>
 
+    /**
+     * Single full-resolution upright frame at [tsMs] (for best-shot tiles).
+     * Returns null when undecodable. Caller owns the bitmap.
+     */
+    suspend fun frameAt(uri: Uri, tsMs: Long): Bitmap?
+
     companion object {
         const val DEFAULT_FPS = 5
         const val MAX_FRAMES = 200
@@ -107,6 +113,35 @@ class MediaMetadataRetrieverFrameExtractor(
             runCatching { retriever.release() }
         }
     }.flowOn(Dispatchers.IO)
+
+    override suspend fun frameAt(uri: Uri, tsMs: Long): Bitmap? =
+        withContext(Dispatchers.IO) {
+            val retriever = MediaMetadataRetriever()
+            try {
+                retriever.setDataSource(appContext, uri)
+                val rotation = retriever.extractMetadata(
+                    MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION,
+                )?.toIntOrNull() ?: 0
+                val raw = retriever.getFrameAtTime(
+                    tsMs * 1000,
+                    MediaMetadataRetriever.OPTION_CLOSEST,
+                ) ?: return@withContext null
+                uprightFull(raw, rotation)
+            } catch (_: Exception) {
+                null
+            } finally {
+                runCatching { retriever.release() }
+            }
+        }
+
+    /** Rotation only — full resolution for export-quality tiles. Takes ownership of [src]. */
+    private fun uprightFull(src: Bitmap, rotation: Int): Bitmap {
+        if (rotation == 0) return src
+        val m = Matrix().apply { postRotate(rotation.toFloat()) }
+        val out = Bitmap.createBitmap(src, 0, 0, src.width, src.height, m, true)
+        src.recycle()
+        return out
+    }
 
     private fun displayName(uri: Uri): String {
         appContext.contentResolver.query(

@@ -8,6 +8,7 @@
         android:maxSdkVersion="32" />
 
     <application
+        android:name=".data.FaceCardApp"
         android:label="@string/app_name"
         android:theme="@style/Theme.FaceCard"
         android:supportsRtl="true"

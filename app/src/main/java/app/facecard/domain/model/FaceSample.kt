@@ -19,4 +19,12 @@ data class FaceSample(
     val edgeClipped: Boolean,
     val area: Int,
     val trackingId: Int?,
+    // Detection-space box + frame dims (upright px). Phase 5 maps these
+    // onto full-res re-extracts for generous-crop tiles.
+    val left: Int,
+    val top: Int,
+    val right: Int,
+    val bottom: Int,
+    val frameW: Int,
+    val frameH: Int,
 )

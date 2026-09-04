@@ -7,6 +7,8 @@ import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import app.facecard.data.FaceCardApp
+import app.facecard.data.export.generousCrop
 import app.facecard.data.face.BlurEstimator
 import app.facecard.data.face.MlKitFaceDetector
 import app.facecard.data.face.TfliteMobileFaceNet
@@ -20,6 +22,7 @@ import app.facecard.domain.pipeline.AppearanceSegmenter
 import app.facecard.domain.pipeline.Clusterer
 import app.facecard.domain.pipeline.PipelineStage
 import app.facecard.domain.pipeline.PipelineUiState
+import app.facecard.domain.pipeline.QualityScorer
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -166,6 +169,12 @@ class ProcessingViewModel(
                                                 edgeClipped = f.edgeClipped,
                                                 area = f.area,
                                                 trackingId = f.trackingId,
+                                                left = f.left,
+                                                top = f.top,
+                                                right = f.right,
+                                                bottom = f.bottom,
+                                                frameW = bmp.width,
+                                                frameH = bmp.height,
                                             ),
                                         )
                                         kept++
@@ -204,11 +213,13 @@ class ProcessingViewModel(
                 )
                 val people = withContext(Dispatchers.Default) {
                     Clusterer().cluster(samples).mapIndexed { i, members ->
+                        val best = QualityScorer.best(members)
                         Person(
                             id = i,
                             label = "Person ${'A' + i}",
                             samples = members,
                             appearances = AppearanceSegmenter.segment(members),
+                            best = best,
                         )
                     }
                 }
@@ -219,7 +230,47 @@ class ProcessingViewModel(
                     total = 1,
                     etaMs = null,
                 )
-                _state.value = PipelineUiState.Done(meta.copy(frameCount = count))
+                // ---- SCORE: best-shot thumbs (full-res re-extract, generous crop) ----
+                stage = PipelineStage.SCORE
+                val thumbs = mutableMapOf<Int, Bitmap>()
+                withContext(Dispatchers.Default) {
+                    for ((i, p) in people.withIndex()) {
+                        currentCoroutineContext().ensureActive()
+                        _state.value = PipelineUiState.Running(
+                            stage = PipelineStage.SCORE,
+                            done = i,
+                            total = people.size.coerceAtLeast(1),
+                            etaMs = null,
+                        )
+                        try {
+                            extractor.frameAt(uri, p.best.tsMs)?.let { full ->
+                                val crop = generousCrop(p.best, full.width, full.height)
+                                val tile = Bitmap.createBitmap(
+                                    full, crop.l, crop.t, crop.w, crop.h,
+                                )
+                                full.recycle()
+                                val tw = 360
+                                val th = (360f * tile.height / tile.width).toInt()
+                                    .coerceAtLeast(1)
+                                thumbs[p.id] = Bitmap.createScaledBitmap(tile, tw, th, true)
+                                tile.recycle()
+                            }
+                        } catch (_: Exception) {
+                            // A missing thumb must never fail the run;
+                            // the collage renderer re-extracts independently.
+                        }
+                    }
+                }
+                _state.value = PipelineUiState.Running(
+                    stage = PipelineStage.SCORE,
+                    done = people.size.coerceAtLeast(1),
+                    total = people.size.coerceAtLeast(1),
+                    etaMs = null,
+                )
+                val doneMeta = meta.copy(frameCount = count)
+                (extractor.appContext.applicationContext as FaceCardApp)
+                    .resultStore.set(ProcessResult(people), thumbs, doneMeta, uri)
+                _state.value = PipelineUiState.Done(doneMeta)
             } catch (e: CancellationException) {
                 _state.value = PipelineUiState.Cancelled
                 throw e

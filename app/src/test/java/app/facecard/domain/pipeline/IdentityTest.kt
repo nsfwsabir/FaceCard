@@ -24,6 +24,8 @@ class ClustererTest {
         tsMs = ts, embedding = emb, sharpness = 500.0,
         eulerY = 0f, eulerZ = 0f, eyeOpen = 0.9f, smiling = 0.5f,
         edgeClipped = false, area = 10_000, trackingId = null,
+        left = 100, top = 100, right = 200, bottom = 200,
+        frameW = 640, frameH = 640,
     )
 
     @Test
@@ -99,6 +101,8 @@ class AppearanceSegmenterTest {
         tsMs = ts, embedding = floatArrayOf(1f, 0f), sharpness = 500.0,
         eulerY = 0f, eulerZ = 0f, eyeOpen = 0.9f, smiling = 0.5f,
         edgeClipped = false, area = 10_000, trackingId = null,
+        left = 100, top = 100, right = 200, bottom = 200,
+        frameW = 640, frameH = 640,
     )
 
     @Test
