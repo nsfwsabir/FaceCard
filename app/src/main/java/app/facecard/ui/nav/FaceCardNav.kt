@@ -45,7 +45,13 @@ fun FaceCardNav() {
         ) { entry ->
             ProcessingScreen(
                 videoUri = entry.arguments?.getString("uri"),
-                onDone = { nav.navigate(Routes.RESULTS) },
+                onDone = {
+                    // Drop Processing from the stack: Back from Results must
+                    // land on Home, never re-enter (and re-run) the pipeline.
+                    nav.navigate(Routes.RESULTS) {
+                        popUpTo(Routes.HOME)
+                    }
+                },
                 onCancel = { nav.popBackStack() },
             )
         }

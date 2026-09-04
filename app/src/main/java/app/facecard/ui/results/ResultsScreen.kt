@@ -6,12 +6,15 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -123,7 +126,12 @@ fun ResultsScreen(
                 }
             }
             Spacer(Modifier.height(12.dp))
-            Button(onClick = onViewCollage, modifier = Modifier.fillMaxWidth()) {
+            Button(
+                onClick = onViewCollage,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding(),
+            ) {
                 Text("View collage")
             }
             Spacer(Modifier.height(12.dp))
@@ -223,6 +231,7 @@ private fun PersonCard(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun QualityBadges(person: Person) {
     val best = person.best
@@ -233,12 +242,16 @@ private fun QualityBadges(person: Person) {
         if (!best.edgeClipped) add("Full face")
     }.take(3)
     if (badges.isEmpty()) return
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
         badges.forEach {
             Text(
                 it,
-                style = MaterialTheme.typography.labelSmall,
+                style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.tertiary,
+                maxLines = 1,
             )
         }
     }
