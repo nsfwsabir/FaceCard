@@ -37,6 +37,18 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
+    }
+    defaultConfig {
+        // Short git SHA baked into About → build identity is verifiable
+        // on-device, so a screenshot always tells us which code produced it.
+        val sha = try {
+            providers.exec { commandLine("git", "rev-parse", "--short", "HEAD") }
+                .standardOutput.asText.get().trim().ifEmpty { "dev" }
+        } catch (_: Exception) {
+            "dev"
+        }
+        buildConfigField("String", "GIT_SHA", "\"$sha\"")
     }
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.14"

@@ -252,7 +252,8 @@ private fun DoneBody(
     Text(
         stats?.let {
             "Detection: ${it.facesTotal} faces in ${it.framesWithFaces}/${it.frames} frames · " +
-                "${it.whipPanDrops} whip-pan drops · ${it.blurredFaceDrops} blurry-face drops. " +
+                "${it.whipPanDrops} whip-pan drops · ${it.blurredFaceDrops} blurry-face drops · " +
+                "${it.clippedFaces} half-faces skipped. " +
                 "Clustering plugs in next (Phase 4)."
         } ?: "Extraction works. Face detection plugs into this stream in Phase 3.",
         style = MaterialTheme.typography.bodyMedium,

@@ -170,14 +170,16 @@ class Clusterer(
 
     companion object {
         /**
-         * DBSCAN operating point (similarity). Deliberately tight: device
-         * logcat proved cross-identity pairs on this footage reach ~0.55
-         * while same-person drift spans ~0.5–0.9, so any looser bar fuses
-         * distinct people (a whole 145-face run chained into one person at
-         * 0.55). Splits are recoverable via stages 2–3; fusions are not.
-         * Tune at the knee of the embed_qc distribution, re-verify Sample 1.
+         * DBSCAN operating point (similarity). Set at 0.55 with margin:
+         * measured on real footage, clean same-person pairs score ≥0.565
+         * while clean cross-person pairs stay ≤0.293 — 0.55 sits between
+         * with room on both sides. (Half-out-of-frame faces, which matched
+         * arbitrarily up to 0.54, never reach clustering: the pipeline
+         * drops them at detection.) Splits below the bar heal via stages
+         * 2–3; fusions above it are blocked by the overlap guard. Tune at
+         * the knee of the embed_qc distribution, re-verify Sample 1.
          */
-        const val COSINE_THRESHOLD = 0.70f
+        const val COSINE_THRESHOLD = 0.55f
 
         /**
          * DBSCAN minPts. Smile counts neighbours EXCLUDING the point itself
@@ -193,10 +195,11 @@ class Clusterer(
 
         /**
          * Centroid bar for stage-2 merges (disjoint screen time required).
-         * Sits below the fragment bar so genuinely split drift reunites,
-         * while the overlap guard protects shared frames.
+         * Sits just below the fragment bar so genuinely split drift
+         * reunites, while the overlap guard protects shared frames.
+         * Safe because poison-free cross pairs stay far below it.
          */
-        const val MERGE_THRESHOLD = 0.60f
+        const val MERGE_THRESHOLD = 0.50f
 
         /**
          * Never-alone clusters up to this size dissolve into established

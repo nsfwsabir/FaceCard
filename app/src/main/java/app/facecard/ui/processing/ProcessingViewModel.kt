@@ -42,6 +42,7 @@ data class DetectStats(
     val facesTotal: Int,
     val whipPanDrops: Int,
     val blurredFaceDrops: Int,
+    val clippedFaces: Int,
 )
 
 /**
@@ -131,6 +132,7 @@ class ProcessingViewModel(
                     var facesTotal = 0
                     var whipDrops = 0
                     var blurredFaces = 0
+                    var clippedFaces = 0
                     var d = 0
                     val t1 = SystemClock.elapsedRealtime()
                     withContext(Dispatchers.Default) {
@@ -147,6 +149,17 @@ class ProcessingViewModel(
                                 val faces = detector.detect(bmp).largest()
                                 var kept = 0
                                 for (f in faces) {
+                                    if (f.edgeClipped) {
+                                        // Half-out-of-frame faces embed
+                                        // arbitrarily (measured on real
+                                        // footage: matching the wrong person
+                                        // at 0.54 while missing their own at
+                                        // 0.17) and poison clusters. Per the
+                                        // brief's "clearly visible" standard
+                                        // they form no samples at all.
+                                        clippedFaces++
+                                        continue
+                                    }
                                     val region = Rect(f.left, f.top, f.right, f.bottom)
                                     val sharp = BlurEstimator.sharpnessOf(bmp, region, 64)
                                     if (sharp < BlurEstimator.FACE_MIN_VARIANCE) {
@@ -202,6 +215,7 @@ class ProcessingViewModel(
                         facesTotal = facesTotal,
                         whipPanDrops = whipDrops,
                         blurredFaceDrops = blurredFaces,
+                        clippedFaces = clippedFaces,
                     )
                 } finally {
                     detector.close()

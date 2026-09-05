@@ -24,6 +24,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import app.facecard.BuildConfig
 import app.facecard.data.FaceCardApp
 import app.facecard.domain.pipeline.AppearanceSegmenter
 import app.facecard.domain.pipeline.Clusterer
@@ -93,7 +94,8 @@ fun AboutScreen(onBack: () -> Unit) {
                 }) { Text("Clear cache") }
             }
             Text(
-                "FaceCard 1.0 · minSdk 26 · Kotlin + Compose + ML Kit + TFLite",
+                "FaceCard 1.0 · build ${BuildConfig.GIT_SHA} · minSdk 26 · " +
+                    "Kotlin + Compose + ML Kit + TFLite",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

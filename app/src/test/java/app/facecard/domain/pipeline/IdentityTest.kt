@@ -55,7 +55,7 @@ class ClustererTest {
 
     @Test
     fun `gradual drift chains into one person`() {
-        // A↔B cosine distance is 0.50 (beyond eps ≡ 0.38): no direct link.
+        // A↔B cosine distance is 0.50 (beyond eps ≡ 0.45): no direct link.
         // But M sits within eps of both, so density chaining unites all 18.
         // This is the medium→close-up healing path for real footage.
         val a = rep(0L, 6, floatArrayOf(1f, 0f, 0f))
@@ -69,7 +69,7 @@ class ClustererTest {
     @Test
     fun `gap without bridge stays split`() {
         val a = rep(0L, 6, floatArrayOf(1f, 0f, 0f))
-        val b = rep(5000L, 6, floatArrayOf(0.5f, 0.866f, 0f))
+        val b = rep(5000L, 6, floatArrayOf(0.45f, 0.893f, 0f))
         val clusters = Clusterer().cluster(a + b)
         assertEquals(2, clusters.size)
     }
@@ -133,10 +133,10 @@ class ClustererTest {
 
     @Test
     fun `split drift reunites above the merge bar`() {
-        // Fragments at sim 0.65 stay split at the tight DBSCAN bar (0.70)
-        // but reunite in stage 2: disjoint screen time, bar 0.60 cleared.
+        // Fragments below the DBSCAN bar (0.55) reunite in stage 2 when
+        // disjoint in time and above the merge bar (0.50).
         val a = rep(0L, 6, floatArrayOf(1f, 0f, 0f))
-        val b = rep(5000L, 6, floatArrayOf(0.65f, 0.7599f, 0f))
+        val b = rep(5000L, 6, floatArrayOf(0.52f, 0.8537f, 0f))
         val clusters = Clusterer().cluster(a + b)
         assertEquals(1, clusters.size)
         assertEquals(12, clusters[0].size)
@@ -147,7 +147,7 @@ class ClustererTest {
         // Same pair as above, but sharing screen time: the cannot-link
         // guard (brief shared frames hold distinct people) refuses.
         val a = rep(0L, 6, floatArrayOf(1f, 0f, 0f))
-        val b = List(6) { i -> sample(100L + i * 200L, floatArrayOf(0.65f, 0.7599f, 0f)) }
+        val b = List(6) { i -> sample(100L + i * 200L, floatArrayOf(0.52f, 0.8537f, 0f)) }
         val clusters = Clusterer().cluster(a + b)
         assertEquals(2, clusters.size)
     }
