@@ -42,8 +42,16 @@ No API keys, no network, no model downloads — everything ships in the APK.
 
 ### Similarity threshold chosen
 
-**Cosine sim τ = 0.70, minPts 5, merge 0.60** (`Clusterer`). Embeddings
-are L2-unit-norm, so cosine distance equals Euclidean distance up to scale
+**Cosine sim τ = 0.70, minPts 2, merge 0.60** (`Clusterer`). Note what
+minPts means here: it is the minimum number of *face detections* (across
+frames) that seed one person's cluster — it is NOT a cap on the number of
+people. DBSCAN discovers as many people as the footage holds (2, 5, 10…);
+each person just needs ≥3 mutually-close faces (Smile counts neighbours
+excluding self, so minPts=2 ⟺ triplets). A 10-person video yields 10
+clusters with these exact settings — nothing is tuned to "5". Sample 1's
+5 × 4 = 20 is used only as a *verification target*, never as an input:
+there is no k, no sample name, and no count anywhere in the pipeline.
+Embeddings are L2-unit-norm, so cosine distance equals Euclidean distance up to scale
 (d² = 2(1−cos)) — Smile's KD-tree `DBSCAN.fit` runs directly on the vectors
 with radius √(2·0.30) ≈ 0.77, no custom distance code. The fragment bar sits
 deliberately tight: device logcat proved same/cross-identity similarities
@@ -54,8 +62,10 @@ over-splits into high-precision fragments, and a constrained agglomerative
 pass reunites pairs with centroid sim ≥ 0.60 that NEVER share screen time
 (the brief's shared frames hold distinct people: cannot-link). A small
 fragment with zero solo screen time dissolves sample-by-sample into the
-nearest established cluster (≥ 0.55) or is dropped. minPts 5 is the textbook
-brake on single-link chaining. The app logs `embed_qc` (pairwise similarity
+nearest established cluster (≥ 0.55) or is dropped. Separation comes from
+the tight eps, not from minPts: minPts only sets the recall floor (triplets
+seed a person; anything smaller can't form a countable appearance anyway).
+The app logs `embed_qc` (pairwise similarity histogram) plus clustering
 histogram) plus clustering decisions under `FaceCard` — tune at the knee of
 that distribution and re-verify against Sample 1 (5 / 20).
 

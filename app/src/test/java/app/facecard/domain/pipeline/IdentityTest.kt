@@ -7,7 +7,7 @@ import org.junit.Test
 import kotlin.math.sqrt
 
 /**
- * DBSCAN semantics (Smile, eps ≡ sim 0.62, minPts 5): density chaining,
+ * DBSCAN semantics (Smile, eps ≡ sim 0.70, minPts 2): tight fragments,
  * native noise, no time guard — identities separate by embedding distance.
  * Groups need ≥6 mutually-close faces (minPts counts neighbours excluding
  * self), coherent with the ≥3-frame appearance rule.
