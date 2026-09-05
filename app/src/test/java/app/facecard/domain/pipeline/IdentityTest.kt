@@ -131,4 +131,51 @@ class ClustererTest {
         assertEquals(2, clusters.size)
         assertEquals(1000L, clusters[0].minOf { it.tsMs })
     }
+
+    @Test
+    fun `split drift reunites above the merge bar`() {
+        // Fragments at sim 0.65 stay split at the tight DBSCAN bar (0.70)
+        // but reunite in stage 2: disjoint screen time, bar 0.60 cleared.
+        val a = rep(0L, 6, floatArrayOf(1f, 0f, 0f))
+        val b = rep(5000L, 6, floatArrayOf(0.65f, 0.7599f, 0f))
+        val clusters = Clusterer().cluster(a + b)
+        assertEquals(1, clusters.size)
+        assertEquals(12, clusters[0].size)
+    }
+
+    @Test
+    fun `co-occurring fragments never merge`() {
+        // Same pair as above, but sharing screen time: the cannot-link
+        // guard (brief shared frames hold distinct people) refuses.
+        val a = rep(0L, 6, floatArrayOf(1f, 0f, 0f))
+        val b = List(6) { i -> sample(100L + i * 200L, floatArrayOf(0.65f, 0.7599f, 0f)) }
+        val clusters = Clusterer().cluster(a + b)
+        assertEquals(2, clusters.size)
+    }
+
+    @Test
+    fun `never-alone fragment dissolves into its person`() {
+        // Fragment lives entirely inside big's [0,2500] window at sim 0.57:
+        // below the merge bar, above the duplicate-grade dissolve bar.
+        val big = rep(0L, 6, floatArrayOf(1f, 0f, 0f))
+        val frag = List(6) { i -> sample(300L + i * 200L, floatArrayOf(0.57f, 0.8216f, 0f)) }
+        // Spread big across [0,2500] so it actually covers the fragment.
+        val bigSpread = listOf(0L, 500L, 1000L, 1500L, 2000L, 2500L)
+            .map { sample(it, floatArrayOf(1f, 0f, 0f)) }
+        val clusters = Clusterer().cluster(bigSpread + frag)
+        assertEquals(1, clusters.size)
+        assertEquals(12, clusters[0].size)
+    }
+
+    @Test
+    fun `sub-threshold never-alone fragment is dropped`() {
+        // Same setup at sim 0.50: below every bar. It must vanish rather
+        // than survive as a bogus ×1 person.
+        val bigSpread = listOf(0L, 500L, 1000L, 1500L, 2000L, 2500L)
+            .map { sample(it, floatArrayOf(1f, 0f, 0f)) }
+        val frag = List(6) { i -> sample(300L + i * 200L, floatArrayOf(0.5f, 0.866f, 0f)) }
+        val clusters = Clusterer().cluster(bigSpread + frag)
+        assertEquals(1, clusters.size)
+        assertEquals(6, clusters[0].size)
+    }
 }

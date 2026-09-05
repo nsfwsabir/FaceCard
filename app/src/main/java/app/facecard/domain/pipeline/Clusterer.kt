@@ -6,15 +6,21 @@ import smile.clustering.PartitionClustering
 import kotlin.math.sqrt
 
 /**
- * Face clustering via Smile DBSCAN over cosine distance (TRD §4.5).
+ * Face clustering (TRD §4.5), in three standard stages:
  *
- * Library: `com.github.haifengl:smile-core:2.6.0` (LGPL-3.0, pure JVM,
- * offline — no backend, no native code). DBSCAN is the textbook algorithm
- * for face clustering: density chaining heals gradual drift (medium shot →
- * close-up across frames) when intermediate frames exist, native noise
- * labels isolate false hits, and — unlike centroid-following schemes — big
- * clusters can't drift into absorbing distinct people. Ordering barely
- * matters (only edge points between two clusters may swap).
+ * 1. **Smile DBSCAN** (`com.github.haifengl:smile-core:2.6.0`, LGPL-3.0,
+ *    pure JVM, offline) over cosine distance → high-precision fragments.
+ *    The bar sits deliberately TIGHT: device logcat proved this footage's
+ *    cross-identity pairs reach ~0.55–0.67 while same-person drift spans
+ *    ~0.5–0.9, so no single threshold separates them — splitting is
+ *    recoverable downstream, fusing is not.
+ * 2. **Constrained agglomerative merge**: fragment pairs with centroid
+ *    similarity ≥ merge bar AND disjoint screen time reunite (textbook
+ *    merging with cannot-link constraints; the brief's shared frames hold
+ *    distinct people, so co-occurring fragments never merge).
+ * 3. **Never-alone dissolve**: a small fragment with zero solo screen time
+ *    is shared-frame debris — each sample is reassigned to the nearest
+ *    established cluster (nearest-centroid classification) or dropped.
  *
  * Metric note: embeddings are L2-unit-norm, so cosine distance EQUALS
  * Euclidean distance up to scale: d² = 2(1−cos). We feed Smile's KD-tree
@@ -24,6 +30,7 @@ import kotlin.math.sqrt
 class Clusterer(
     val threshold: Float = COSINE_THRESHOLD,
     private val minPts: Int = DBSCAN_MIN_PTS,
+    private val mergeThreshold: Float = MERGE_THRESHOLD,
 ) {
 
     fun cluster(
@@ -41,69 +48,191 @@ class Clusterer(
         }
         if (valid.isEmpty()) return emptyList()
 
+        // ---- Stage 1: DBSCAN fragments ----
         val data = Array(valid.size) { i ->
             DoubleArray(valid[i].embedding.size) { j -> valid[i].embedding[j].toDouble() }
         }
         val radius = sqrt(2.0 * (1.0 - threshold))
         val model = DBSCAN.fit(data, minPts, radius)
         val labels = model.y
-
-        // Group indices per label; noise points become singleton candidates.
-        val groups = mutableMapOf<Int, MutableList<FaceSample>>()
+        val clusters = mutableListOf<MutableList<FaceSample>>()
         val noise = mutableListOf<FaceSample>()
+        val byLabel = mutableMapOf<Int, MutableList<FaceSample>>()
         for (i in valid.indices) {
             val label = labels[i]
             if (label == PartitionClustering.OUTLIER) {
                 noise.add(valid[i])
             } else {
-                groups.getOrPut(label) { mutableListOf() }.add(valid[i])
+                byLabel.getOrPut(label) { mutableListOf() }.add(valid[i])
             }
         }
+        clusters.addAll(byLabel.values)
         logger?.invoke(
             "dbscan k=${model.k} noise=${noise.size} " +
-                "sizes=${groups.values.map { it.size }}",
+                "sizes=${clusters.map { it.size }}",
         )
 
         // Noise rule: lone singletons in a big cast are false hits; in a
         // tiny cast every face counts (recall over precision).
-        val candidates = groups.values.toMutableList()
-        if (candidates.size + noise.size >= MIN_CLUSTERS_TO_PRUNE) {
+        if (clusters.size + noise.size >= MIN_CLUSTERS_TO_PRUNE) {
             if (noise.isNotEmpty()) logger?.invoke("prune ${noise.size} noise faces")
         } else {
-            noise.forEach { candidates.add(mutableListOf(it)) }
+            noise.forEach { clusters.add(mutableListOf(it)) }
         }
-        return candidates.sortedBy { members -> members.minOf { it.tsMs } }
+        if (clusters.isEmpty()) return emptyList()
+        val centroids = clusters.map { meanNormalized(it) }.toMutableList()
+
+        // ---- Stage 2: constrained merge ----
+        var merged = true
+        while (merged) {
+            merged = false
+            outer@ for (i in clusters.indices) {
+                for (j in i + 1 until clusters.size) {
+                    val sim = cosine(centroids[i], centroids[j])
+                    if (sim < mergeThreshold) continue
+                    if (AppearanceSegmenter.overlaps(
+                            AppearanceSegmenter.segment(clusters[i]),
+                            AppearanceSegmenter.segment(clusters[j]),
+                        )
+                    ) {
+                        logger?.invoke(
+                            "block merge size=${clusters[i].size}+${clusters[j].size} " +
+                                "sim=${"%.3f".format(sim)} (co-occurring people)",
+                        )
+                        continue
+                    }
+                    logger?.invoke(
+                        "merge size=${clusters[i].size}+${clusters[j].size} " +
+                            "sim=${"%.3f".format(sim)}",
+                    )
+                    clusters[i].addAll(clusters[j])
+                    centroids[i] = meanNormalized(clusters[i])
+                    clusters.removeAt(j)
+                    centroids.removeAt(j)
+                    merged = true
+                    break@outer
+                }
+            }
+        }
+
+        // ---- Stage 3: dissolve never-alone fragments ----
+        // A small cluster with ZERO solo samples — every face co-occurs
+        // with established people — is shared-frame debris, not a person.
+        // Reassign each sample to the nearest established cluster
+        // (≥ duplicate-grade bar) or drop it. Clusters with any solo
+        // screen time are immune; if nobody is established, nothing
+        // dissolves (e.g. a video that is one single shared frame).
+        if (clusters.size >= 2) {
+            val segs = clusters.map { AppearanceSegmenter.segment(it) }
+            fun coveredByOthers(k: Int, ts: Long): Boolean =
+                segs.indices.any { o ->
+                    o != k && segs[o].any { ts in it.startMs..it.endMs }
+                }
+            val established = clusters.indices.filter { k ->
+                clusters[k].any { s -> !coveredByOthers(k, s.tsMs) }
+            }.toSet()
+            if (established.isNotEmpty()) {
+                val recipientCentroid = established
+                    .associateWith { meanNormalized(clusters[it]) }
+                    .toMutableMap()
+                val dissolved = clusters.indices.filter { k ->
+                    k !in established && clusters[k].size <= DISSOLVE_MAX_SIZE
+                }
+                for (k in dissolved.sortedDescending()) {
+                    var rescued = 0
+                    for (s in clusters[k].sortedBy { it.tsMs }) {
+                        var best: Int? = null
+                        var bestSim = DISSOLVE_REASSIGN
+                        for (r in established) {
+                            val sim = cosine(s.embedding, recipientCentroid.getValue(r))
+                            if (sim >= bestSim) {
+                                bestSim = sim
+                                best = r
+                            }
+                        }
+                        if (best != null) {
+                            clusters[best].add(s)
+                            recipientCentroid[best] = meanNormalized(clusters[best])
+                            rescued++
+                        } else {
+                            logger?.invoke("dissolve-drop ts=${s.tsMs}")
+                        }
+                    }
+                    logger?.invoke(
+                        "dissolve cluster size=${clusters[k].size} rescued=$rescued",
+                    )
+                    clusters.removeAt(k)
+                }
+            }
+        }
+        return clusters.sortedBy { members -> members.minOf { it.tsMs } }
     }
 
     companion object {
         /**
-         * Cosine-similarity operating point. Raised 0.55 → 0.62 after a
-         * device run chained all 145 faces into one mega-cluster: this
-         * footage's cross-identity pairs reach ~0.55 (blur/close-up mush),
-         * so 0.55 links everything to everything. Same-person runs clear
-         * 0.62 comfortably; anything below is handled as noise or split
-         * (see minPts). Tune at the knee of a k-NN distance plot and
-         * re-verify against Sample 1 (5 / 20).
+         * DBSCAN operating point (similarity). Deliberately tight: device
+         * logcat proved cross-identity pairs on this footage reach ~0.55
+         * while same-person drift spans ~0.5–0.9, so any looser bar fuses
+         * distinct people (a whole 145-face run chained into one person at
+         * 0.55). Splits are recoverable via stages 2–3; fusions are not.
+         * Tune at the knee of the embed_qc distribution, re-verify Sample 1.
          */
-        const val COSINE_THRESHOLD = 0.62f
+        const val COSINE_THRESHOLD = 0.70f
 
         /**
-         * DBSCAN minPts. Two reasons this is 5, not 2:
-         * 1. Smile counts neighbours EXCLUDING the point itself (verified:
-         *    triplets cluster at minPts=2, stay noise at 3), so minPts=5 ⟺
-         *    a person needs ≥6 mutually-close faces.
-         * 2. Higher minPts is the textbook brake on DBSCAN's single-link
-         *    effect: one ambiguous pair (shared frame, blur smear) must not
-         *    bridge two people into one mega-cluster. Device run showed all
-         *    145 faces chaining into a single person at minPts=2; bridges
-         *    that thin never reach density 5, while real cast members
-         *    (dozens of faces each) clear it easily.
-         * Coherent with the ≥3-frame appearance rule: anything smaller
-         * can't form a countable appearance anyway.
+         * DBSCAN minPts. Smile counts neighbours EXCLUDING the point itself
+         * (verified), so minPts=5 ⟺ a person needs ≥6 mutually-close faces —
+         * coherent with multi-second appearances at 5fps. Higher minPts is
+         * the textbook brake on single-link chaining.
          */
         const val DBSCAN_MIN_PTS = 5
 
+        /**
+         * Centroid bar for stage-2 merges (disjoint screen time required).
+         * Sits below the fragment bar so genuinely split drift reunites,
+         * while the overlap guard protects shared frames.
+         */
+        const val MERGE_THRESHOLD = 0.60f
+
+        /**
+         * Never-alone clusters up to this size dissolve into established
+         * people; bigger ones are kept as-is (too much evidence to overrule).
+         */
+        const val DISSOLVE_MAX_SIZE = 12
+
+        /**
+         * Per-sample bar for dissolve reassignment. Duplicate-grade on
+         * purpose: dissolving below this once fed a real always-shared
+         * person to the nearest big cluster. Ambiguous leftovers survive
+         * as their own person instead.
+         */
+        const val DISSOLVE_REASSIGN = 0.55f
+
         /** Below this many candidate clusters, noise is kept, not pruned. */
         const val MIN_CLUSTERS_TO_PRUNE = 3
+
+        fun cosine(a: FloatArray, b: FloatArray): Float {
+            var dot = 0f
+            val n = minOf(a.size, b.size)
+            for (i in 0 until n) dot += a[i] * b[i]
+            // Fail SAFE: NaN must never satisfy a >= comparison.
+            return if (dot.isNaN()) -1f else dot
+        }
+
+        private fun meanNormalized(members: List<FaceSample>): FloatArray {
+            val dim = members.first().embedding.size
+            val mean = FloatArray(dim)
+            for (m in members) {
+                val e = m.embedding
+                for (i in 0 until minOf(dim, e.size)) mean[i] += e[i]
+            }
+            var norm = 0f
+            for (v in mean) norm += v * v
+            norm = sqrt(norm)
+            if (norm > 1e-9f) {
+                for (i in mean.indices) mean[i] /= norm
+            }
+            return mean
+        }
     }
 }

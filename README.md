@@ -35,28 +35,29 @@ No API keys, no network, no model downloads — everything ships in the APK.
 | Face detection | **ML Kit face detection, bundled model** (`com.google.mlkit:face-detection:16.1.5`) — accurate mode, all classifications (eyes + smile), tracking IDs, min face size 0.12. Bundled (not the Play-Services thin client) so it works offline on first launch |
 | Blur gate | Laplacian variance, no OpenCV: frame < 40 → whip-pan drop (counts for nobody); face < 60 → dropped from counting *and* best shots |
 | Embedding | **MobileFaceNet, 112×112 → 192-d float32** (`assets/mobilefacenet.tflite`, via MCarlomagno/FaceRecognitionAuth, BSD-3-Clause; MobileFaceNet architecture by deepinsight). Pixels to [-1, 1]; output is unit-norm → cosine = dot. Validated with LiteRT: `input[1,112,112,3] fp32 → embeddings[1,192] fp32`, ‖emb‖ ≈ 1.0 |
-| Clustering | **Smile DBSCAN** (`com.github.haifengl:smile-core:2.6.0`, LGPL-3.0, pure JVM, offline) over cosine distance, sim τ 0.62 · minPts 5 — density chaining heals gradual drift, native noise labels isolate false hits |
+| Clustering | **Smile DBSCAN** (`com.github.haifengl:smile-core:2.6.0`, LGPL-3.0, pure JVM, offline), sim τ 0.70 · minPts 5, plus constrained merge (0.60, disjoint screen time only) and never-alone dissolve — see below |
 | Appearances | Per-person segments: ≤1500 ms gap bridged (mid-appearance detection holes), ≥3 frames (0.6 s) to count — flicker/whip-pans don't inflate counts; shared frames count once per person |
 | Best shot | Solo-frame candidates preferred (shared frames drag neighbours into the tile); 0.30 frontality + 0.30 sharpness + 0.20 eyes-open + 0.15 smile + 0.05 size, with vetoes (closed eyes ×0.2, clipped ×0.3, profile ×0.5, tiny face ×0.5). Full-res re-extract, generous crop (2.4× face box, 1.8× fallback for shared frames — never a tight face crop) |
 | Collage | 1080×1920 story canvas (hero/split/editorial/mosaic by headcount). The preview displays the exact export bitmap |
 
 ### Similarity threshold chosen
 
-**Cosine sim τ = 0.62, minPts 5** (`Clusterer.COSINE_THRESHOLD`,
-`DBSCAN_MIN_PTS`). Embeddings are L2-unit-norm, so cosine distance equals
-Euclidean distance up to scale (d² = 2(1−cos)) — Smile's KD-tree
-`DBSCAN.fit` runs directly on the vectors with radius √(2·0.38) ≈ 0.87, no
-custom distance code. The bar sits here and not at 0.55 because a device run
-chained all 145 faces into one person there: this footage's cross-identity
-pairs reach ~0.55 (blur/close-up mush), while confident same-person runs
-clear 0.62. minPts 5 is the textbook brake on single-link chaining —
-bridges that thin never reach density, while real cast members (dozens of
-faces) clear it easily. Density chaining still reunites gradual drift
-(medium shot → close-up across frames) when intermediate frames exist; lone
-noise in a big cast is dropped, while tiny casts keep everything. The app
-logs a pairwise-similarity histogram (`embed_qc`) plus merge/prune decisions
-under `FaceCard` — tune at the knee of that distribution (standard DBSCAN
-procedure) and re-verify against Sample 1 (5 / 20).
+**Cosine sim τ = 0.70, minPts 5, merge 0.60** (`Clusterer`). Embeddings
+are L2-unit-norm, so cosine distance equals Euclidean distance up to scale
+(d² = 2(1−cos)) — Smile's KD-tree `DBSCAN.fit` runs directly on the vectors
+with radius √(2·0.30) ≈ 0.77, no custom distance code. The fragment bar sits
+deliberately tight: device logcat proved same/cross-identity similarities
+overlap substantially on this footage (cross pairs reach ~0.55, drift spans
+~0.5–0.9), and a 0.55 bar chained all 145 faces into one person while 0.62
+still fused pairs. Splits are recoverable, fusions are not — so DBSCAN
+over-splits into high-precision fragments, and a constrained agglomerative
+pass reunites pairs with centroid sim ≥ 0.60 that NEVER share screen time
+(the brief's shared frames hold distinct people: cannot-link). A small
+fragment with zero solo screen time dissolves sample-by-sample into the
+nearest established cluster (≥ 0.55) or is dropped. minPts 5 is the textbook
+brake on single-link chaining. The app logs `embed_qc` (pairwise similarity
+histogram) plus clustering decisions under `FaceCard` — tune at the knee of
+that distribution and re-verify against Sample 1 (5 / 20).
 
 ### Counting contract
 
