@@ -181,11 +181,15 @@ class Clusterer(
 
         /**
          * DBSCAN minPts. Smile counts neighbours EXCLUDING the point itself
-         * (verified), so minPts=5 ⟺ a person needs ≥6 mutually-close faces —
-         * coherent with multi-second appearances at 5fps. Higher minPts is
-         * the textbook brake on single-link chaining.
+         * (verified: triplets cluster at minPts=2, stay noise at 3), so
+         * minPts=2 ⟺ triplets seed a person — the recall floor for brief
+         * appearances. Separation comes from the tight eps above, not from
+         * minPts: minPts=5 was tried on device and deleted drifted-but-real
+         * people as noise (only 3 of 5 shown). Sparse sub-eps bridges are
+         * rare at this tightness; the overlap guard and dissolve rule out
+         * the rest. Coherent with the ≥3-frame appearance rule.
          */
-        const val DBSCAN_MIN_PTS = 5
+        const val DBSCAN_MIN_PTS = 2
 
         /**
          * Centroid bar for stage-2 merges (disjoint screen time required).
