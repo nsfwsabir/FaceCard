@@ -77,21 +77,31 @@ class Clusterer(
 
     companion object {
         /**
-         * Cosine-similarity operating point (radius = 1 − threshold in
-         * cosine distance ≈ 0.45). Tune at the knee of a k-NN distance plot
-         * (standard DBSCAN procedure): lower merges lookalikes, higher
-         * splits one person in two. Re-tune only against Sample 1 (5 / 20).
+         * Cosine-similarity operating point. Raised 0.55 → 0.62 after a
+         * device run chained all 145 faces into one mega-cluster: this
+         * footage's cross-identity pairs reach ~0.55 (blur/close-up mush),
+         * so 0.55 links everything to everything. Same-person runs clear
+         * 0.62 comfortably; anything below is handled as noise or split
+         * (see minPts). Tune at the knee of a k-NN distance plot and
+         * re-verify against Sample 1 (5 / 20).
          */
-        const val COSINE_THRESHOLD = 0.55f
+        const val COSINE_THRESHOLD = 0.62f
 
         /**
-         * DBSCAN minPts. Smile counts neighbours EXCLUDING the point itself
-         * (verified: triplets cluster at minPts=2, stay noise at 3), so
-         * minPts=2 ⟺ a person needs ≥3 mutually-close faces — coherent with
-         * the ≥3-frame appearance rule. Anything smaller can't form a
-         * countable appearance anyway.
+         * DBSCAN minPts. Two reasons this is 5, not 2:
+         * 1. Smile counts neighbours EXCLUDING the point itself (verified:
+         *    triplets cluster at minPts=2, stay noise at 3), so minPts=5 ⟺
+         *    a person needs ≥6 mutually-close faces.
+         * 2. Higher minPts is the textbook brake on DBSCAN's single-link
+         *    effect: one ambiguous pair (shared frame, blur smear) must not
+         *    bridge two people into one mega-cluster. Device run showed all
+         *    145 faces chaining into a single person at minPts=2; bridges
+         *    that thin never reach density 5, while real cast members
+         *    (dozens of faces each) clear it easily.
+         * Coherent with the ≥3-frame appearance rule: anything smaller
+         * can't form a countable appearance anyway.
          */
-        const val DBSCAN_MIN_PTS = 2
+        const val DBSCAN_MIN_PTS = 5
 
         /** Below this many candidate clusters, noise is kept, not pruned. */
         const val MIN_CLUSTERS_TO_PRUNE = 3

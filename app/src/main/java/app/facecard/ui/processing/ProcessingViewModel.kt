@@ -216,6 +216,31 @@ class ProcessingViewModel(
                     etaMs = null,
                 )
                 val people = withContext(Dispatchers.Default) {
+                    // Embedding QC: pairwise similarity distribution. This is
+                    // the knee data for eps tuning — mean/max/histogram over
+                    // all pairs (~11k dots for a 30s clip, milliseconds).
+                    val hist = IntArray(10)
+                    var pairs = 0
+                    var sum = 0.0
+                    var mx = -2.0
+                    for (x in samples.indices) {
+                        for (y in x + 1 until samples.size) {
+                            val a = samples[x].embedding
+                            val b = samples[y].embedding
+                            var dot = 0.0
+                            for (k in a.indices) dot += a[k] * b[k]
+                            pairs++
+                            sum += dot
+                            if (dot > mx) mx = dot
+                            hist[((dot * 0.5 + 0.5) * 10).toInt().coerceIn(0, 9)]++
+                        }
+                    }
+                    Log.d(
+                        "FaceCard",
+                        "embed_qc pairs=$pairs " +
+                            "mean=${"%.3f".format(if (pairs > 0) sum / pairs else 0.0)} " +
+                            "max=${"%.3f".format(mx)} hist=${hist.toList()}",
+                    )
                     Clusterer().cluster(samples) { msg -> Log.d("FaceCard", msg) }
                         .map { members ->
                             val best = QualityScorer.best(members)
