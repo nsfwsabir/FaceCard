@@ -9,8 +9,7 @@ import kotlin.math.sqrt
 /**
  * DBSCAN semantics (Smile, eps ≡ sim 0.70, minPts 2): tight fragments,
  * native noise, no time guard — identities separate by embedding distance.
- * Groups need ≥6 mutually-close faces (minPts counts neighbours excluding
- * self), coherent with the ≥3-frame appearance rule.
+ * Triplets seed a person (minPts counts neighbours excluding self).
  */
 class ClustererTest {
 
@@ -177,5 +176,72 @@ class ClustererTest {
         val clusters = Clusterer().cluster(bigSpread + frag)
         assertEquals(1, clusters.size)
         assertEquals(6, clusters[0].size)
+    }
+}
+
+class AppearanceSegmenterTest {
+
+    private fun sample(ts: Long) = FaceSample(
+        tsMs = ts, embedding = floatArrayOf(1f, 0f), sharpness = 500.0,
+        eulerY = 0f, eulerZ = 0f, eyeOpen = 0.9f, smiling = 0.5f,
+        edgeClipped = false, area = 10_000, trackingId = null,
+        left = 100, top = 100, right = 200, bottom = 200,
+        frameW = 640, frameH = 640, soloFrame = true,
+    )
+
+    @Test
+    fun `continuous run is one appearance`() {
+        val segs = AppearanceSegmenter.segment(
+            listOf(0L, 200L, 400L, 600L).map(::sample),
+        )
+        assertEquals(1, segs.size)
+        assertEquals(0L, segs[0].startMs)
+        assertEquals(600L, segs[0].endMs)
+        assertEquals(4, segs[0].frames)
+    }
+
+    @Test
+    fun `real cut splits, flicker bridges`() {
+        // 0,200,600 bridged (gaps under 1500ms); 3000+ is a new appearance.
+        val segs = AppearanceSegmenter.segment(
+            listOf(0L, 200L, 600L, 3000L, 3200L, 3400L).map(::sample),
+        )
+        assertEquals(2, segs.size)
+        assertEquals(600L, segs[0].endMs)
+        assertEquals(3000L, segs[1].startMs)
+    }
+
+    @Test
+    fun `sub-min-length flicker is dropped (whip-pan defence)`() {
+        val segs = AppearanceSegmenter.segment(
+            listOf(0L, 200L, 400L, 20_000L).map(::sample),
+        )
+        assertEquals(1, segs.size)
+        assertEquals(400L, segs[0].endMs)
+    }
+
+    @Test
+    fun `same-timestamp multi-face frames stay in one segment`() {
+        // A+B sharing 10.1–11.5s: per-person segmentation counts each
+        // person's shared frames as their own single appearance.
+        val shared = listOf(10_100L, 10_300L, 10_500L, 11_500L).map(::sample)
+        val segs = AppearanceSegmenter.segment(shared)
+        assertEquals(1, segs.size)
+        assertEquals(4, segs[0].frames)
+    }
+
+    @Test
+    fun `empty input gives empty output`() {
+        assertTrue(AppearanceSegmenter.segment(emptyList()).isEmpty())
+    }
+
+    @Test
+    fun `overlaps detects shared screen time`() {
+        val a = AppearanceSegmenter.segment(listOf(0L, 200L, 400L).map(::sample))
+        val b = AppearanceSegmenter.segment(listOf(200L, 400L, 600L).map(::sample))
+        val c = AppearanceSegmenter.segment(listOf(5000L, 5200L, 5400L).map(::sample))
+        assertTrue(AppearanceSegmenter.overlaps(a, b))
+        assertTrue(!AppearanceSegmenter.overlaps(a, c))
+        assertTrue(!AppearanceSegmenter.overlaps(a, emptyList()))
     }
 }
