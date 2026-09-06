@@ -49,7 +49,9 @@ face joins its BEST-matching identity at/above the floor, but only when
 the match is uncontested (clear of the runner-up by 0.05): contested
 faces seed fragments for the merge/dissolve passes to adjudicate instead
 of silently polluting a centroid (near-miss absorption starves true runs
-and bridges phantom segments on interleaved edits); a constrained
+and bridges phantom segments on interleaved edits). Contested rescue
+faces drop rather than absorb. A final fission pass splits bimodal
+clusters whose halves disagree below the merge bar; a constrained
 agglomerative pass reunites fragment pairs with centroid sim ≥ 0.55 that
 NEVER share screen time (the brief's shared frames hold distinct people:
 cannot-link). Pairs of positionally steady clusters living in clearly

@@ -343,6 +343,72 @@ class ClustererTest {
     }
 
     @Test
+    fun `contested rescue drops instead of absorbing`() {
+        // The fragment matches A at 0.60 but B at 0.58: too close to
+        // call, so all three faces drop instead of joining A. Time
+        // overlap blocks both merges; alternations stay under the bar.
+        val embA = floatArrayOf(1f, 0f, 0f)
+        val embB = floatArrayOf(0f, 1f, 0f)
+        val embS = floatArrayOf(0.60f, 0.58f, 0.551f)
+        val bigA = listOf(0L, 200L, 400L, 600L, 1400L, 1600L).map { sample(it, embA) }
+        val bigB = listOf(100L, 300L, 500L, 2000L).map { sample(it, embB) }
+        val frag = listOf(800L, 1000L, 1200L).map { sample(it, embS) }
+        val logs = mutableListOf<String>()
+        val clusters = Clusterer().cluster(bigA + bigB + frag) { logs.add(it) }
+        assertEquals(2, clusters.size)
+        assertTrue(clusters.any { it.size == 6 })
+        assertTrue(clusters.any { it.size == 4 })
+        assertEquals(3, logs.count { it.startsWith("dissolve-drop") })
+    }
+
+    @Test
+    fun `fission splits a bimodal cluster`() {
+        val members = rep(0L, 6, floatArrayOf(1f, 0f, 0f)) +
+            rep(5000L, 6, floatArrayOf(0.3f, 0.9539f, 0f))
+        val logs = mutableListOf<String>()
+        val halves = Clusterer().splitMixed(members) { logs.add(it) }
+        assertEquals(2, halves.size)
+        assertTrue(halves.all { it.size == 6 })
+        assertTrue(logs.any { it.startsWith("fission") })
+    }
+
+    @Test
+    fun `fission keeps a pure cluster whole`() {
+        val members = rep(0L, 12, floatArrayOf(1f, 0f, 0f))
+        val logs = mutableListOf<String>()
+        val halves = Clusterer().splitMixed(members) { logs.add(it) }
+        assertEquals(1, halves.size)
+        assertEquals(12, halves[0].size)
+        assertTrue(logs.none { it.startsWith("fission") })
+    }
+
+    @Test
+    fun `fission keeps a cluster with a tiny half`() {
+        val members = rep(0L, 4, floatArrayOf(1f, 0f, 0f)) +
+            rep(5000L, 2, floatArrayOf(0.3f, 0.9539f, 0f))
+        val halves = Clusterer().splitMixed(members)
+        assertEquals(1, halves.size)
+        assertEquals(6, halves[0].size)
+    }
+
+    @Test
+    fun `fission splits sub-merge-bar join pollution end to end`() {
+        // Four same-identity faces clear the join floor uncontested and
+        // pollute the cluster — below the merge bar, so only fission can
+        // separate them again.
+        val embA = floatArrayOf(1f, 0f, 0f)
+        val embB = floatArrayOf(0.52f, 0.85416f, 0f)
+        val samples = rep(0L, 6, embA) +
+            listOf(2000L, 2200L, 2400L, 2600L).map { sample(it, embB) }
+        val logs = mutableListOf<String>()
+        val clusters = Clusterer().cluster(samples) { logs.add(it) }
+        assertEquals(2, clusters.size)
+        assertTrue(clusters.any { it.size == 6 })
+        assertTrue(clusters.any { it.size == 4 })
+        assertTrue(logs.any { it.startsWith("fission") })
+    }
+
+    @Test
     fun `dissolve survives high-index established clusters`() {
         // Two droppable fragments sit below a late established cluster:
         // each removal shifts the live list, so pre-removal indices into

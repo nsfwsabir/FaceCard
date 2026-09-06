@@ -39,6 +39,12 @@ import kotlin.math.sqrt
  *    established people at a clearly separated screen position is a
  *    genuinely co-occurring person (split-screen) and is kept.
  * 4. Singleton prune in big casts.
+ * 5. Fission: a kept cluster whose 2-means halves are mutually dissimilar
+ *    (below the merge bar — they could never reunite) AND each countable
+ *    splits into two people. Complement of the merge, provably
+ *    non-oscillating: split halves can never re-merge, merged pairs
+ *    (≥ merge bar) can never split. Cleans up sub-merge-bar join
+ *    pollution the margin gate cannot see (uncontested near-misses).
  */
 class Clusterer(
     val threshold: Float = JOIN_THRESHOLD,
@@ -181,14 +187,23 @@ class Clusterer(
                     for (s in cand.sortedBy { it.tsMs }) {
                         var best: Int? = null
                         var bestSim = DISSOLVE_REASSIGN
+                        var runnerUp = -1f
                         for (r in established) {
                             val sim = cosine(s.embedding, recipientCentroid.getValue(r))
                             if (sim >= bestSim) {
+                                runnerUp = bestSim
                                 bestSim = sim
                                 best = r
+                            } else if (sim > runnerUp) {
+                                runnerUp = sim
                             }
                         }
-                        if (best != null) {
+                        // A lone recipient is uncontested by construction;
+                        // otherwise contested faces drop instead of
+                        // absorbing into the wrong person.
+                        if (best != null &&
+                            (established.size <= 1 || bestSim - runnerUp >= ASSIGN_MARGIN)
+                        ) {
                             snap[best].add(s)
                             recipientCentroid[best] = meanNormalized(snap[best])
                             rescued++
@@ -205,7 +220,7 @@ class Clusterer(
         }
 
         // ---- Stage 4: singleton prune (big casts only) ----
-        val kept = if (clusters.size >= MIN_CLUSTERS_TO_PRUNE) {
+        val pruned = if (clusters.size >= MIN_CLUSTERS_TO_PRUNE) {
             clusters.filter {
                 if (it.size >= minFaces) true
                 else {
@@ -216,7 +231,75 @@ class Clusterer(
         } else {
             clusters
         }
-        return kept.sortedBy { members -> members.minOf { it.tsMs } }
+
+        // ---- Stage 5: fission of mixed clusters ----
+        val split = mutableListOf<MutableList<FaceSample>>()
+        for (members in pruned) {
+            split.addAll(splitMixed(members, logger))
+        }
+        return split.sortedBy { members -> members.minOf { it.tsMs } }
+    }
+
+    /**
+     * Splits a bimodal cluster into its two identities. Deterministic
+     * 2-means with farthest-pair seeding: mixed clusters (sub-merge-bar
+     * join pollution, cross-identity merges below the bar) separate
+     * cleanly, while pure clusters return whole (their halves agree).
+     * Both halves must be countable on their own — else the whole stays.
+     */
+    internal fun splitMixed(
+        members: List<FaceSample>,
+        logger: ((String) -> Unit)? = null,
+    ): List<MutableList<FaceSample>> {
+        if (members.size < 2 * MIN_HALF_SAMPLES) return listOf(members.toMutableList())
+        var seedA = members[0]
+        var seedB = members[1]
+        var worst = 2f
+        for (x in members.indices) {
+            for (y in x + 1 until members.size) {
+                val sim = cosine(members[x].embedding, members[y].embedding)
+                if (sim < worst) {
+                    worst = sim
+                    seedA = members[x]
+                    seedB = members[y]
+                }
+            }
+        }
+        var ca = seedA.embedding
+        var cb = seedB.embedding
+        var assign = List(members.size) { 0 }
+        for (round in 0 until MAX_FISSION_ROUNDS) {
+            val next = members.map { s ->
+                if (cosine(s.embedding, ca) >= cosine(s.embedding, cb)) 0 else 1
+            }
+            if (next == assign) break
+            assign = next
+            val ga = members.filterIndexed { i, _ -> assign[i] == 0 }
+            val gb = members.filterIndexed { i, _ -> assign[i] == 1 }
+            if (ga.isEmpty() || gb.isEmpty()) break
+            ca = meanNormalized(ga)
+            cb = meanNormalized(gb)
+        }
+        val ga = members.filterIndexed { i, _ -> assign[i] == 0 }.toMutableList()
+        val gb = members.filterIndexed { i, _ -> assign[i] == 1 }.toMutableList()
+        if (ga.size < MIN_HALF_SAMPLES || gb.size < MIN_HALF_SAMPLES) {
+            return listOf(members.toMutableList())
+        }
+        if (AppearanceSegmenter.segment(ga).isEmpty() ||
+            AppearanceSegmenter.segment(gb).isEmpty()
+        ) {
+            return listOf(members.toMutableList())
+        }
+        val cross = cosine(meanNormalized(ga), meanNormalized(gb))
+        return if (cross < FISSION_SIM) {
+            logger?.invoke(
+                "fission size=${members.size} -> ${ga.size}+${gb.size} " +
+                    "sim=${"%.3f".format(cross)}",
+            )
+            listOf(ga, gb)
+        } else {
+            listOf(members.toMutableList())
+        }
     }
 
     /**
@@ -453,6 +536,19 @@ class Clusterer(
 
         /** Maximum gap between consecutive glimpses to count a switch. */
         const val INTERLEAVE_MAX_GAP_MS = 400L
+
+        /**
+         * Fission bar: 2-means halves below this similarity split. Set at
+         * the merge bar as its complement — split halves can never
+         * re-merge, merged pairs can never split.
+         */
+        const val FISSION_SIM = 0.55f
+
+        /** Minimum samples per fission half (each must stand alone). */
+        const val MIN_HALF_SAMPLES = 3
+
+        /** Cap on 2-means refinement rounds (converges in 1–2). */
+        const val MAX_FISSION_ROUNDS = 10
 
         /**
          * Maximum positional spread (median absolute deviation of

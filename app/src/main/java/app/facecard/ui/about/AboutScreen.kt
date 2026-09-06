@@ -77,7 +77,8 @@ fun AboutScreen(onBack: () -> Unit) {
                     "${Clusterer.COSINE_THRESHOLD} (clear best match wins)")
                 Text("Merge ≥ ${Clusterer.MERGE_THRESHOLD} disjoint time + " +
                     "same region + non-alternating · " +
-                    "dissolve never-alone ≤ ${Clusterer.DISSOLVE_MAX_SIZE}")
+                    "dissolve never-alone ≤ ${Clusterer.DISSOLVE_MAX_SIZE} · " +
+                    "fission below ${Clusterer.FISSION_SIM}")
                 Text("Blur: frame ≥ 40, face ≥ 60 (Laplacian variance)")
                 Text("Segment gap ≤ ${AppearanceSegmenter.GAP_TOL_MS}ms, " +
                     "min length ${AppearanceSegmenter.MIN_SEGMENT_LEN} frames")
