@@ -31,6 +31,14 @@ class ResultStore {
     private val _videoUri = MutableStateFlow<Uri?>(null)
     val videoUri: StateFlow<Uri?> = _videoUri
 
+    private val _decisions = MutableStateFlow<List<String>>(emptyList())
+    val decisions: StateFlow<List<String>> = _decisions
+
+    @Synchronized
+    fun setDecisions(decisions: List<String>) {
+        _decisions.value = decisions
+    }
+
     @Synchronized
     fun set(
         result: ProcessResult,
@@ -52,5 +60,6 @@ class ResultStore {
         _thumbs.value = emptyMap()
         _meta.value = null
         _videoUri.value = null
+        _decisions.value = emptyList()
     }
 }

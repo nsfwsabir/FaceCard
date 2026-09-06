@@ -228,6 +228,7 @@ class ProcessingViewModel(
                     total = 1,
                     etaMs = null,
                 )
+                val decisions = mutableListOf<String>()
                 val people = withContext(Dispatchers.Default) {
                     // Embedding QC: pairwise similarity distribution. This is
                     // the knee data for eps tuning — mean/max/histogram over
@@ -254,7 +255,10 @@ class ProcessingViewModel(
                             "mean=${"%.3f".format(if (pairs > 0) sum / pairs else 0.0)} " +
                             "max=${"%.3f".format(mx)} hist=${hist.toList()}",
                     )
-                    Clusterer().cluster(samples) { msg -> Log.d("FaceCard", msg) }
+                    Clusterer().cluster(samples) { msg ->
+                        Log.d("FaceCard", msg)
+                        if (decisions.size < 100) decisions.add(msg)
+                    }
                         .map { members ->
                             val best = QualityScorer.best(members)
                             Person(
@@ -267,14 +271,18 @@ class ProcessingViewModel(
                         }
                         .filter { it.appearances.isNotEmpty() }
                         .also { kept ->
-                            // Faces not assigned to any shown person: DBSCAN
-                            // noise, pruned singletons, or clusters with no
+                            // Faces not assigned to any shown person: noise,
+                            // pruned singletons, or clusters with no
                             // countable (≥3-frame) appearance.
                             val stray = samples.size - kept.sumOf { it.samples.size }
-                            Log.d("FaceCard", "kept ${kept.size} people ($stray stray faces)")
+                            val strayMsg = "kept ${kept.size} people ($stray stray faces)"
+                            Log.d("FaceCard", strayMsg)
+                            decisions.add(strayMsg)
                         }
                         .mapIndexed { i, p -> p.copy(id = i, label = "Person ${'A' + i}") }
                 }
+                (extractor.appContext.applicationContext as FaceCardApp)
+                    .resultStore.setDecisions(decisions.toList())
                 val result = ProcessResult(people)
                 _result.value = result
                 Log.d(

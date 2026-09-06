@@ -87,7 +87,12 @@ class MlKitFaceDetector : FaceDetector {
     }
 
     companion object {
-        /** Ignore tiny background faces (relative to image width). */
-        const val MIN_FACE_SIZE = 0.12f
+        /**
+         * Relative to image width (detection bitmap). 0.08 catches small
+         * faces in split-screen halves and wide group shots that 0.12
+         * missed entirely. Extra background hits are contained downstream
+         * (singleton prune, tiny-face tile veto).
+         */
+        const val MIN_FACE_SIZE = 0.08f
     }
 }
