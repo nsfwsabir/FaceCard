@@ -105,6 +105,15 @@ class Clusterer(
                         )
                         continue
                     }
+                    if (countAlternations(clusters[i], clusters[j]) >= INTERLEAVE_MIN_ALTS) {
+                        logger?.invoke(
+                            "block merge size=${clusters[i].size}+" +
+                                "${clusters[j].size} " +
+                                "sim=${"%.3f".format(sim)} " +
+                                "(interleaved co-stars)",
+                        )
+                        continue
+                    }
                     if (separatedRegions(clusters[i], clusters[j])) {
                         logger?.invoke(
                             "block merge size=${clusters[i].size}+" +
@@ -147,8 +156,11 @@ class Clusterer(
                     k !in established && clusters[k].size <= DISSOLVE_MAX_SIZE
                 }
                 for (k in dissolved.sortedDescending()) {
+                    val maxAlts = established.maxOf { r ->
+                        countAlternations(clusters[k], clusters[r])
+                    }
                     if (isSpatiallyDistinctPerson(
-                            clusters[k], establishedSamples, logger,
+                            clusters[k], establishedSamples, logger, maxAlts,
                         )
                     ) {
                         logger?.invoke(
@@ -200,6 +212,33 @@ class Clusterer(
     }
 
     /**
+     * Counts fast back-and-forth switches between two clusters' samples:
+     * adjacent in combined time order, at most [INTERLEAVE_MAX_GAP_MS]
+     * apart, owned by different sides. Shot-reverse-shot dialogue
+     * interleaves co-stars every few hundred ms; a single cut boundary
+     * yields exactly one switch, so the bar sits well above that. Same
+     * timestamps count (shared frames alternate trivially). Drift is
+     * progressive, never oscillatory — genuine drift-healing pairs never
+     * trip this.
+     */
+    private fun countAlternations(
+        a: List<FaceSample>,
+        b: List<FaceSample>,
+    ): Int {
+        if (a.isEmpty() || b.isEmpty()) return 0
+        val merged = (a.asSequence().map { it.tsMs to 0 } +
+            b.asSequence().map { it.tsMs to 1 })
+            .sortedBy { it.first }.toList()
+        var alts = 0
+        for (i in 1 until merged.size) {
+            if (merged[i].second != merged[i - 1].second &&
+                merged[i].first - merged[i - 1].first <= INTERLEAVE_MAX_GAP_MS
+            ) alts++
+        }
+        return alts
+    }
+
+    /**
      * Merge guard: the same person holds their screen position across
      * segments, so two positionally steady clusters living in clearly
      * different regions are different people — even with disjoint screen
@@ -238,11 +277,19 @@ class Clusterer(
      * source at a distance, while a split-screen guest does so in every
      * shared frame. Degenerate/missing geometry abstains (false), so old
      * behavior — and old tests — hold wherever boxes carry no signal.
+     *
+     * Alternating co-stars (shot-reverse-shot dialogue) never share a
+     * frame, so the geometry arm above cannot see them. Sustained fast
+     * back-and-forth with an established cluster ([maxAlternations]) is
+     * the same signal through time: a distinct person, not debris. The
+     * no-shared-frames requirement keeps drift duplicates with
+     * coincident timestamps on the rescue-or-drop path.
      */
     private fun isSpatiallyDistinctPerson(
         candidate: List<FaceSample>,
         establishedSamples: List<FaceSample>,
         logger: ((String) -> Unit)? = null,
+        maxAlternations: Int = 0,
     ): Boolean {
         if (AppearanceSegmenter.segment(candidate)
                 .none { it.frames >= AppearanceSegmenter.MIN_SEGMENT_LEN }
@@ -274,7 +321,17 @@ class Clusterer(
             "dissolve-spatial size=${candidate.size} " +
                 "paired=$paired separated=$separated",
         )
-        return paired >= SPATIAL_MIN_PAIRED && separated == paired
+        if (paired >= SPATIAL_MIN_PAIRED && separated == paired) return true
+        if (!candidate.any { byTs.containsKey(it.tsMs) } &&
+            maxAlternations >= INTERLEAVE_MIN_ALTS
+        ) {
+            logger?.invoke(
+                "dissolve-keep size=${candidate.size} " +
+                    "(alternating co-star, alts=$maxAlternations)",
+            )
+            return true
+        }
+        return false
     }
 
     private fun normalizedCenter(s: FaceSample): Pair<Float, Float>? {
@@ -365,6 +422,17 @@ class Clusterer(
 
         /** Minimum same-frame pairs required before the keep-rule may fire. */
         const val SPATIAL_MIN_PAIRED = 3
+
+        /**
+         * Minimum fast back-and-forth switches (see [countAlternations])
+         * to treat a pair as interleaved co-stars. A lone cut boundary
+         * contributes exactly one switch; genuine dialogue edits
+         * contribute a switch per exchanged glimpse.
+         */
+        const val INTERLEAVE_MIN_ALTS = 3
+
+        /** Maximum gap between consecutive glimpses to count a switch. */
+        const val INTERLEAVE_MAX_GAP_MS = 400L
 
         /**
          * Maximum positional spread (median absolute deviation of

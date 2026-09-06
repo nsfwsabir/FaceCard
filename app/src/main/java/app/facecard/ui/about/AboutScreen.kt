@@ -76,7 +76,7 @@ fun AboutScreen(onBack: () -> Unit) {
                 Text("Identity: competitive assignment, join τ = " +
                     "${Clusterer.COSINE_THRESHOLD} (clear best match wins)")
                 Text("Merge ≥ ${Clusterer.MERGE_THRESHOLD} disjoint time + " +
-                    "same region · " +
+                    "same region + non-alternating · " +
                     "dissolve never-alone ≤ ${Clusterer.DISSOLVE_MAX_SIZE}")
                 Text("Blur: frame ≥ 40, face ≥ 60 (Laplacian variance)")
                 Text("Segment gap ≤ ${AppearanceSegmenter.GAP_TOL_MS}ms, " +

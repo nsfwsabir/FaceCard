@@ -233,19 +233,19 @@ class ClustererTest {
     @Test
     fun `migration reunites drift in the same screen region`() {
         // Control for the region guard: the migration shape with all
-        // boxes identical — the merge must still fire.
+        // boxes identical — the merge must still fire. Only two
+        // back-and-forth switches, so the alternation guard stays out.
         val left = Pair(40, 180)
         val samples = listOf(
             geoSample(0L, floatArrayOf(1f, 0f, 0f), left.first, left.second),
             geoSample(100L, floatArrayOf(0.984808f, 0.173648f, 0f), left.first, left.second),
             geoSample(200L, floatArrayOf(0.342020f, 0.939693f, 0f), left.first, left.second),
             geoSample(300L, floatArrayOf(0.819152f, 0.573576f, 0f), left.first, left.second),
-            geoSample(600L, floatArrayOf(0.342020f, 0.939693f, 0f), left.first, left.second),
         )
         val logs = mutableListOf<String>()
         val clusters = Clusterer().cluster(samples) { logs.add(it) }
         assertEquals(1, clusters.size)
-        assertEquals(5, clusters[0].size)
+        assertEquals(4, clusters[0].size)
         assertTrue(logs.any { it.startsWith("merge size=") })
     }
 
@@ -254,14 +254,16 @@ class ClustererTest {
         // Same embeddings and timing as the control, but the drift pair
         // lives in the opposite half: disjoint time, passing sim, yet two
         // steady regions — different people, so the merge is refused. The
-        // pair's late sample at ts=600 owns solo screen time, so dissolve
-        // cannot reunite what the guard keeps apart.
+        // late sample sits seconds out, keeping alternations at two so
+        // this stays the region guard's case, not alternation's. The
+        // pair's late sample at ts=5000 also owns solo screen time, so
+        // dissolve cannot reunite what the guard keeps apart.
         val samples = listOf(
             geoSample(0L, floatArrayOf(1f, 0f, 0f), left = 40, right = 180),
             geoSample(100L, floatArrayOf(0.984808f, 0.173648f, 0f), left = 40, right = 180),
             geoSample(200L, floatArrayOf(0.342020f, 0.939693f, 0f), left = 460, right = 600),
             geoSample(300L, floatArrayOf(0.819152f, 0.573576f, 0f), left = 40, right = 180),
-            geoSample(600L, floatArrayOf(0.342020f, 0.939693f, 0f), left = 460, right = 600),
+            geoSample(5000L, floatArrayOf(0.342020f, 0.939693f, 0f), left = 460, right = 600),
         )
         val logs = mutableListOf<String>()
         val clusters = Clusterer().cluster(samples) { logs.add(it) }
@@ -273,6 +275,54 @@ class ClustererTest {
                 it.startsWith("block merge") && it.contains("different screen regions")
             },
         )
+    }
+
+    @Test
+    fun `interleaved co-stars never merge`() {
+        // Same migration shape as the control (merge sim proven), all
+        // boxes identical so the region guard abstains — but the drift
+        // pair interleaves with big at 200ms: alternating co-stars, so
+        // the merge is refused. This is the alternation guard's doing.
+        val samples = listOf(
+            geoSample(0L, floatArrayOf(1f, 0f, 0f), left = 40, right = 180),
+            geoSample(100L, floatArrayOf(0.984808f, 0.173648f, 0f), left = 40, right = 180),
+            geoSample(200L, floatArrayOf(0.342020f, 0.939693f, 0f), left = 40, right = 180),
+            geoSample(300L, floatArrayOf(0.819152f, 0.573576f, 0f), left = 40, right = 180),
+            geoSample(600L, floatArrayOf(0.342020f, 0.939693f, 0f), left = 40, right = 180),
+        )
+        val logs = mutableListOf<String>()
+        val clusters = Clusterer().cluster(samples) { logs.add(it) }
+        assertEquals(2, clusters.size)
+        assertTrue(clusters.any { it.size == 3 })
+        assertTrue(clusters.any { it.size == 2 })
+        assertTrue(
+            logs.any {
+                it.startsWith("block merge") && it.contains("interleaved co-stars")
+            },
+        )
+    }
+
+    @Test
+    fun `alternating never-alone fragment is kept as co-star`() {
+        // Pure sequential interleave (disjoint timestamps, identical
+        // boxes): the spatial arm cannot fire and rescue fails at sim
+        // 0.30 — but six back-and-forth switches prove a co-star, and its
+        // 3-frame run is a countable appearance. Mirrors the Sample 1
+        // dialogue edits.
+        val embA = floatArrayOf(1f, 0f, 0f)
+        val embB = floatArrayOf(0.3f, 0.953939f, 0f)
+        val big = listOf(0L, 200L, 400L, 600L, 800L, 1200L, 1600L, 2000L).map { ts ->
+            geoSample(ts, embA, left = 40, right = 180)
+        }
+        val frag = listOf(1000L, 1400L, 1800L).map { ts ->
+            geoSample(ts, embB, left = 40, right = 180)
+        }
+        val logs = mutableListOf<String>()
+        val clusters = Clusterer().cluster(big + frag) { logs.add(it) }
+        assertEquals(2, clusters.size)
+        assertTrue(clusters.any { it.size == 8 })
+        assertTrue(clusters.any { it.size == 3 })
+        assertTrue(logs.any { it.contains("alternating co-star") })
     }
 
     @Test

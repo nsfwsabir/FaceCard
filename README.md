@@ -54,7 +54,9 @@ agglomerative pass reunites fragment pairs with centroid sim ≥ 0.55 that
 NEVER share screen time (the brief's shared frames hold distinct people:
 cannot-link). Pairs of positionally steady clusters living in clearly
 different screen regions are refused the merge even with disjoint time
-(split-screen guests are not drift). A small fragment with zero solo screen
+(split-screen guests are not drift), as are pairs alternating back and
+forth several times a second (shot-reverse-shot co-stars are not drift
+either — a lone cut boundary still merges). A small fragment with zero solo screen
 time dissolves into
 the nearest established cluster (≥ 0.55) or is dropped; lone singletons in
 big casts are pruned. There is no k and no person cap: a 10-person video
