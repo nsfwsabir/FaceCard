@@ -79,7 +79,7 @@ class DetectedFaceTest {
         left = l, top = t, right = r, bottom = b,
         eulerY = 0f, eulerZ = 0f,
         leftEyeOpen = 0.9f, rightEyeOpen = 0.9f, smiling = 0.5f,
-        trackingId = null, edgeClipped = false, cutOff = false,
+        trackingId = null, edgeClipped = false, fullFace = true,
     )
 
     @Test
@@ -119,18 +119,21 @@ class DetectedFaceTest {
     }
 
     @Test
-    fun `touching the boundary is cut off`() {
-        assertTrue(isCutOff(0, 300, 200, 600, 640, 1136))
-        assertTrue(isCutOff(200, 300, 640, 600, 640, 1136))
-        assertTrue(isCutOff(0, 0, 640, 1136, 640, 1136))
+    fun `full face needs all landmarks inside`() {
+        assertTrue(isFullFace(100f, 100f, 200f, 100f, 150f, 200f, 150f, 300f, 640, 1136))
     }
 
     @Test
-    fun `near-edge close-up is not cut off (but is edge-clipped)`() {
-        // A close-up 30px from the edge: fully visible, must survive the
-        // sample gate — while still tripping the compositional margin.
-        // (Device run once flagged 121/147 faces here and showed 1 person.)
-        assertFalse(isCutOff(30, 100, 300, 500, 640, 1136))
-        assertTrue(isEdgeClipped(30, 100, 300, 500, 640, 1136))
+    fun `missing landmark fails full face`() {
+        assertFalse(isFullFace(null, 100f, 200f, 100f, 150f, 200f, 150f, 300f, 640, 1136))
+        assertFalse(isFullFace(100f, 100f, 200f, 100f, 150f, 200f, null, 300f, 640, 1136))
+    }
+
+    @Test
+    fun `edge landmark fails full face`() {
+        // Eye 2px from the edge: cut off, must not seed embeddings —
+        // while a 30px-clearance close-up passes (the 121-skipped lesson).
+        assertFalse(isFullFace(2f, 100f, 200f, 100f, 150f, 200f, 150f, 300f, 640, 1136))
+        assertTrue(isFullFace(30f, 100f, 200f, 100f, 150f, 200f, 150f, 300f, 640, 1136))
     }
 }

@@ -18,13 +18,14 @@ data class DetectedFace(
     val trackingId: Int?,
     val edgeClipped: Boolean,
     /**
-     * True only when the (already clamped) box touches the frame boundary:
-     * part of the face is physically outside the image, so its embedding
-     * is unreliable. Unlike [edgeClipped] (an 8% compositional margin used
-     * for scoring), this fires only on real cut-off — close-ups with a few
-     * pixels of clearance pass through.
+     * Clustering-grade full face: both eyes, nose base and mouth all
+     * detected AND comfortably inside the frame (see [isFullFace]). Only
+     * full faces are embedded — partial faces match arbitrarily (measured:
+     * a half-face matched the wrong person at 0.54 while scoring 0.17
+     * against its own). Near-edge but complete close-ups pass; only
+     * genuinely cut-off faces fail.
      */
-    val cutOff: Boolean,
+    val fullFace: Boolean,
 ) {
     val width: Int get() = (right - left).coerceAtLeast(0)
     val height: Int get() = (bottom - top).coerceAtLeast(0)
@@ -59,23 +60,35 @@ fun isEdgeClipped(
 }
 
 /**
- * True only when the clamped box touches the frame boundary: part of the
- * face is physically outside the image. A fully visible face essentially
- * never aligns pixel-exact with the boundary. Faces only NEAR the edge
- * (close-up framing) correctly return false here while still tripping the
- * wider [isEdgeClipped] compositional margin.
+ * Clustering-grade gate: both eyes, nose base and mouth must be detected
+ * AND sit comfortably inside the frame. Box coordinates alone cannot tell
+ * a tightly-framed full face from a cut-off one (both touch the boundary —
+ * a device run flagged 121/147 faces that way and showed 1 person); only
+ * landmarks can. Pure Kotlin, JVM-tested.
  */
-fun isCutOff(
-    left: Int,
-    top: Int,
-    right: Int,
-    bottom: Int,
+fun isFullFace(
+    eyeLX: Float?,
+    eyeLY: Float?,
+    eyeRX: Float?,
+    eyeRY: Float?,
+    noseX: Float?,
+    noseY: Float?,
+    mouthX: Float?,
+    mouthY: Float?,
     frameW: Int,
     frameH: Int,
-    slop: Int = 1,
+    marginFrac: Float = 0.02f,
 ): Boolean {
-    if (frameW <= 0 || frameH <= 0) return true
-    return left <= slop || top <= slop || right >= frameW - slop || bottom >= frameH - slop
+    val xs = listOf(eyeLX, eyeRX, noseX, mouthX)
+    val ys = listOf(eyeLY, eyeRY, noseY, mouthY)
+    if ((xs + ys).any { it == null }) return false
+    if (frameW <= 0 || frameH <= 0) return false
+    val mx = frameW * marginFrac
+    val my = frameH * marginFrac
+    val xsn = xs.filterNotNull()
+    val ysn = ys.filterNotNull()
+    return xsn.min() > mx && xsn.max() < frameW - mx &&
+        ysn.min() > my && ysn.max() < frameH - my
 }
 
 const val MAX_FACES_PER_FRAME = 6

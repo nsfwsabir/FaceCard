@@ -253,7 +253,7 @@ private fun DoneBody(
         stats?.let {
             "Detection: ${it.facesTotal} faces in ${it.framesWithFaces}/${it.frames} frames · " +
                 "${it.whipPanDrops} whip-pan drops · ${it.blurredFaceDrops} blurry-face drops · " +
-                "${it.clippedFaces} cut-off half-faces skipped."
+                "${it.partialFaces} partial faces skipped."
         } ?: "Extraction works. Face detection plugs into this stream in Phase 3.",
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,

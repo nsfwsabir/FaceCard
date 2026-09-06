@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.face.FaceDetection
 import com.google.mlkit.vision.face.FaceDetectorOptions
+import com.google.mlkit.vision.face.FaceLandmark
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.io.Closeable
 import kotlin.coroutines.resume
@@ -25,7 +26,9 @@ class MlKitFaceDetector : FaceDetector {
     private val client = FaceDetection.getClient(
         FaceDetectorOptions.Builder()
             .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_ACCURATE)
-            .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_NONE)
+            // Landmarks feed the full-face gate (isFullFace): box coords
+            // alone cannot tell tight close-ups from cut-off faces.
+            .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_ALL)
             .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_ALL)
             .setMinFaceSize(MIN_FACE_SIZE)
             .enableTracking()
@@ -60,10 +63,18 @@ class MlKitFaceDetector : FaceDetector {
                             edgeClipped = isEdgeClipped(
                                 b.left, b.top, b.right, b.bottom, fw, fh,
                             ),
-                            // A fully visible face essentially never aligns
-                            // pixel-exact with the boundary; touching it
-                            // means part of the face is outside the image.
-                            cutOff = isCutOff(l, t, r, bot, fw, fh),
+                            fullFace = isFullFace(
+                                eyeLX = f.getLandmark(FaceLandmark.LEFT_EYE)?.position?.x,
+                                eyeLY = f.getLandmark(FaceLandmark.LEFT_EYE)?.position?.y,
+                                eyeRX = f.getLandmark(FaceLandmark.RIGHT_EYE)?.position?.x,
+                                eyeRY = f.getLandmark(FaceLandmark.RIGHT_EYE)?.position?.y,
+                                noseX = f.getLandmark(FaceLandmark.NOSE_BASE)?.position?.x,
+                                noseY = f.getLandmark(FaceLandmark.NOSE_BASE)?.position?.y,
+                                mouthX = f.getLandmark(FaceLandmark.MOUTH_BOTTOM)?.position?.x,
+                                mouthY = f.getLandmark(FaceLandmark.MOUTH_BOTTOM)?.position?.y,
+                                frameW = fw,
+                                frameH = fh,
+                            ),
                         )
                     },
                 )

@@ -42,7 +42,7 @@ data class DetectStats(
     val facesTotal: Int,
     val whipPanDrops: Int,
     val blurredFaceDrops: Int,
-    val clippedFaces: Int,
+    val partialFaces: Int,
 )
 
 /**
@@ -132,7 +132,7 @@ class ProcessingViewModel(
                     var facesTotal = 0
                     var whipDrops = 0
                     var blurredFaces = 0
-                    var clippedFaces = 0
+                    var partialFaces = 0
                     var d = 0
                     val t1 = SystemClock.elapsedRealtime()
                     withContext(Dispatchers.Default) {
@@ -149,13 +149,14 @@ class ProcessingViewModel(
                                 val faces = detector.detect(bmp).largest()
                                 var kept = 0
                                 for (f in faces) {
-                                    if (f.cutOff) {
-                                        // Part of the face is outside the
-                                        // image: its embedding is unreliable
-                                        // (measured matching the wrong person
-                                        // while missing its own). Near-edge
-                                        // but fully visible faces still pass.
-                                        clippedFaces++
+                                    if (!f.fullFace) {
+                                        // Eyes, nose or mouth missing/outside
+                                        // the frame: the embedding is
+                                        // unreliable (measured matching the
+                                        // wrong person while missing its own).
+                                        // Per the brief's "clearly visible"
+                                        // standard these form no samples.
+                                        partialFaces++
                                         continue
                                     }
                                     val region = Rect(f.left, f.top, f.right, f.bottom)
@@ -213,7 +214,7 @@ class ProcessingViewModel(
                         facesTotal = facesTotal,
                         whipPanDrops = whipDrops,
                         blurredFaceDrops = blurredFaces,
-                        clippedFaces = clippedFaces,
+                        partialFaces = partialFaces,
                     )
                 } finally {
                     detector.close()
