@@ -33,7 +33,7 @@ No API keys, no network, no model downloads — everything ships in the APK.
 |-------|----------------|
 | Frame sampling | `MediaMetadataRetriever` @ 5 fps (cap 200), rotation applied, 640px detection copies; streaming `Flow`, one bitmap alive at a time |
 | Face detection | **ML Kit face detection, bundled model** (`com.google.mlkit:face-detection:16.1.5`) — accurate mode, all classifications (eyes + smile), tracking IDs, min face size 0.12. Bundled (not the Play-Services thin client) so it works offline on first launch |
-| Blur gate | Laplacian variance, no OpenCV: frame < 40 → whip-pan drop (counts for nobody); face < 60 → dropped from counting *and* best shots |
+| Blur gate | Laplacian variance, no OpenCV: frame < 40 → whip-pan drop (counts for nobody); face < 60 → dropped from counting *and* best shots. Faces cut off by the frame edge are dropped from samples (their embeddings match arbitrarily); near-edge but fully visible close-ups are kept |
 | Embedding | **MobileFaceNet, 112×112 → 192-d float32** (`assets/mobilefacenet.tflite`, via MCarlomagno/FaceRecognitionAuth, BSD-3-Clause; MobileFaceNet architecture by deepinsight). Pixels to [-1, 1]; output is unit-norm → cosine = dot. Validated with LiteRT: `input[1,112,112,3] fp32 → embeddings[1,192] fp32`, ‖emb‖ ≈ 1.0 |
 | Clustering | **Smile DBSCAN** (`com.github.haifengl:smile-core:2.6.0`, LGPL-3.0, pure JVM, offline), sim τ 0.55 · minPts 2, plus constrained merge (0.50, disjoint screen time only) and never-alone dissolve — see below |
 | Appearances | Per-person segments: ≤1500 ms gap bridged (mid-appearance detection holes), ≥3 frames (0.6 s) to count — flicker/whip-pans don't inflate counts; shared frames count once per person |

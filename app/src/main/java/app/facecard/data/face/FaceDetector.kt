@@ -42,11 +42,15 @@ class MlKitFaceDetector : FaceDetector {
                     faces.mapNotNull { f ->
                         val b = f.boundingBox
                         if (b.isEmpty) return@mapNotNull null
+                        val l = b.left.coerceIn(0, fw)
+                        val t = b.top.coerceIn(0, fh)
+                        val r = b.right.coerceIn(0, fw)
+                        val bot = b.bottom.coerceIn(0, fh)
                         DetectedFace(
-                            left = b.left.coerceIn(0, fw),
-                            top = b.top.coerceIn(0, fh),
-                            right = b.right.coerceIn(0, fw),
-                            bottom = b.bottom.coerceIn(0, fh),
+                            left = l,
+                            top = t,
+                            right = r,
+                            bottom = bot,
                             eulerY = f.headEulerAngleY,
                             eulerZ = f.headEulerAngleZ,
                             leftEyeOpen = f.leftEyeOpenProbability,
@@ -56,6 +60,10 @@ class MlKitFaceDetector : FaceDetector {
                             edgeClipped = isEdgeClipped(
                                 b.left, b.top, b.right, b.bottom, fw, fh,
                             ),
+                            // A fully visible face essentially never aligns
+                            // pixel-exact with the boundary; touching it
+                            // means part of the face is outside the image.
+                            cutOff = isCutOff(l, t, r, bot, fw, fh),
                         )
                     },
                 )

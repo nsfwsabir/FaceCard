@@ -17,6 +17,14 @@ data class DetectedFace(
     val smiling: Float?,
     val trackingId: Int?,
     val edgeClipped: Boolean,
+    /**
+     * True only when the (already clamped) box touches the frame boundary:
+     * part of the face is physically outside the image, so its embedding
+     * is unreliable. Unlike [edgeClipped] (an 8% compositional margin used
+     * for scoring), this fires only on real cut-off — close-ups with a few
+     * pixels of clearance pass through.
+     */
+    val cutOff: Boolean,
 ) {
     val width: Int get() = (right - left).coerceAtLeast(0)
     val height: Int get() = (bottom - top).coerceAtLeast(0)
@@ -48,6 +56,26 @@ fun isEdgeClipped(
     if (frameW <= 0 || frameH <= 0) return true
     val m = (minOf(frameW, frameH) * marginFrac)
     return left < m || top < m || right > frameW - m || bottom > frameH - m
+}
+
+/**
+ * True only when the clamped box touches the frame boundary: part of the
+ * face is physically outside the image. A fully visible face essentially
+ * never aligns pixel-exact with the boundary. Faces only NEAR the edge
+ * (close-up framing) correctly return false here while still tripping the
+ * wider [isEdgeClipped] compositional margin.
+ */
+fun isCutOff(
+    left: Int,
+    top: Int,
+    right: Int,
+    bottom: Int,
+    frameW: Int,
+    frameH: Int,
+    slop: Int = 1,
+): Boolean {
+    if (frameW <= 0 || frameH <= 0) return true
+    return left <= slop || top <= slop || right >= frameW - slop || bottom >= frameH - slop
 }
 
 const val MAX_FACES_PER_FRAME = 6

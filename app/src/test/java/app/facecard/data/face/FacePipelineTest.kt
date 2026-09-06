@@ -79,7 +79,7 @@ class DetectedFaceTest {
         left = l, top = t, right = r, bottom = b,
         eulerY = 0f, eulerZ = 0f,
         leftEyeOpen = 0.9f, rightEyeOpen = 0.9f, smiling = 0.5f,
-        trackingId = null, edgeClipped = false,
+        trackingId = null, edgeClipped = false, cutOff = false,
     )
 
     @Test
@@ -116,5 +116,21 @@ class DetectedFaceTest {
     @Test
     fun `invalid frame dims count as clipped`() {
         assertTrue(isEdgeClipped(10, 10, 50, 50, 0, 0))
+    }
+
+    @Test
+    fun `touching the boundary is cut off`() {
+        assertTrue(isCutOff(0, 300, 200, 600, 640, 1136))
+        assertTrue(isCutOff(200, 300, 640, 600, 640, 1136))
+        assertTrue(isCutOff(0, 0, 640, 1136, 640, 1136))
+    }
+
+    @Test
+    fun `near-edge close-up is not cut off (but is edge-clipped)`() {
+        // A close-up 30px from the edge: fully visible, must survive the
+        // sample gate — while still tripping the compositional margin.
+        // (Device run once flagged 121/147 faces here and showed 1 person.)
+        assertFalse(isCutOff(30, 100, 300, 500, 640, 1136))
+        assertTrue(isEdgeClipped(30, 100, 300, 500, 640, 1136))
     }
 }

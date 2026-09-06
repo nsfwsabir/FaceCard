@@ -149,14 +149,12 @@ class ProcessingViewModel(
                                 val faces = detector.detect(bmp).largest()
                                 var kept = 0
                                 for (f in faces) {
-                                    if (f.edgeClipped) {
-                                        // Half-out-of-frame faces embed
-                                        // arbitrarily (measured on real
-                                        // footage: matching the wrong person
-                                        // at 0.54 while missing their own at
-                                        // 0.17) and poison clusters. Per the
-                                        // brief's "clearly visible" standard
-                                        // they form no samples at all.
+                                    if (f.cutOff) {
+                                        // Part of the face is outside the
+                                        // image: its embedding is unreliable
+                                        // (measured matching the wrong person
+                                        // while missing its own). Near-edge
+                                        // but fully visible faces still pass.
                                         clippedFaces++
                                         continue
                                     }
