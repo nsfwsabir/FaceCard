@@ -158,6 +158,78 @@ class ClustererTest {
         assertEquals(6, clusters[0].size)
     }
 
+    private fun geoSample(
+        ts: Long,
+        emb: FloatArray,
+        left: Int,
+        right: Int,
+        top: Int = 100,
+        bottom: Int = 200,
+        frameW: Int = 640,
+        frameH: Int = 640,
+    ) = FaceSample(
+        tsMs = ts, embedding = emb, sharpness = 500.0,
+        eulerY = 0f, eulerZ = 0f, eyeOpen = 0.9f, smiling = 0.5f,
+        edgeClipped = false, area = 10_000, trackingId = null,
+        left = left, top = top, right = right, bottom = bottom,
+        frameW = frameW, frameH = frameH, soloFrame = false,
+    )
+
+    @Test
+    fun `always-shared split-screen guest is kept as its own person`() {
+        // Fragment lives entirely inside big's span (never-alone) at sim
+        // 0.30, so rescue fails — but it shares every frame from the
+        // opposite screen half (dx ~0.66, IoU 0): a real co-occurring
+        // person, not debris. Reproduces the Sample 1 size=5 drop.
+        val embA = floatArrayOf(1f, 0f, 0f)
+        val embB = floatArrayOf(0.3f, 0.953939f, 0f)
+        val big = (0L..2000L step 200L).map { ts ->
+            geoSample(ts, embA, left = 40, right = 180)
+        }
+        val guest = listOf(1000L, 1200L, 1400L, 1600L, 1800L).map { ts ->
+            geoSample(ts, embB, left = 460, right = 600)
+        }
+        val clusters = Clusterer().cluster(big + guest)
+        assertEquals(2, clusters.size)
+        assertTrue(clusters.any { it.size == 11 })
+        assertTrue(clusters.any { it.size == 5 })
+    }
+
+    @Test
+    fun `same-region never-alone fragment still dissolves`() {
+        // Same shape as the split-screen case, but the fragment sits in
+        // the same screen region (identical boxes): drift debris, so the
+        // keep-rule must not fire and the old drop path holds.
+        val embA = floatArrayOf(1f, 0f, 0f)
+        val embB = floatArrayOf(0.3f, 0.953939f, 0f)
+        val big = (0L..2000L step 200L).map { ts ->
+            geoSample(ts, embA, left = 40, right = 180)
+        }
+        val frag = listOf(1000L, 1200L, 1400L, 1600L, 1800L).map { ts ->
+            geoSample(ts, embB, left = 40, right = 180)
+        }
+        val clusters = Clusterer().cluster(big + frag)
+        assertEquals(1, clusters.size)
+        assertEquals(11, clusters[0].size)
+    }
+
+    @Test
+    fun `missing geometry abstains from the spatial keep-rule`() {
+        // Same shape again, but the fragment carries no usable frame dims:
+        // the keep-rule abstains and the sub-threshold drop path holds.
+        val embA = floatArrayOf(1f, 0f, 0f)
+        val embB = floatArrayOf(0.3f, 0.953939f, 0f)
+        val big = (0L..2000L step 200L).map { ts ->
+            geoSample(ts, embA, left = 40, right = 180)
+        }
+        val frag = listOf(1000L, 1200L, 1400L, 1600L, 1800L).map { ts ->
+            geoSample(ts, embB, left = 460, right = 600, frameW = 0, frameH = 0)
+        }
+        val clusters = Clusterer().cluster(big + frag)
+        assertEquals(1, clusters.size)
+        assertEquals(11, clusters[0].size)
+    }
+
     @Test
     fun `lone noise is dropped in a big cast`() {
         val samples = mutableListOf<FaceSample>()

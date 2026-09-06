@@ -1,6 +1,7 @@
 package app.facecard.domain.pipeline
 
 import app.facecard.domain.model.FaceSample
+import kotlin.math.abs
 import kotlin.math.sqrt
 
 /**
@@ -24,7 +25,10 @@ import kotlin.math.sqrt
  *    DISJOINT screen time reunite (the brief's shared frames hold distinct
  *    people: cannot-link).
  * 3. Never-alone dissolve: a small fragment with zero solo screen time is
- *    shared-frame debris — reassigned sample-wise or dropped.
+ *    usually shared-frame debris — reassigned sample-wise or dropped.
+ *    Exception: a temporally coherent fragment sharing frames with
+ *    established people at a clearly separated screen position is a
+ *    genuinely co-occurring person (split-screen) and is kept.
  * 4. Singleton prune in big casts.
  */
 class Clusterer(
@@ -113,10 +117,21 @@ class Clusterer(
                 val recipientCentroid = established
                     .associateWith { meanNormalized(clusters[it]) }
                     .toMutableMap()
+                val establishedSamples = established.flatMap { clusters[it] }
                 val dissolved = clusters.indices.filter { k ->
                     k !in established && clusters[k].size <= DISSOLVE_MAX_SIZE
                 }
                 for (k in dissolved.sortedDescending()) {
+                    if (isSpatiallyDistinctPerson(
+                            clusters[k], establishedSamples, logger,
+                        )
+                    ) {
+                        logger?.invoke(
+                            "dissolve-keep size=${clusters[k].size} " +
+                                "(co-occurring person, separated screen position)",
+                        )
+                        continue
+                    }
                     var rescued = 0
                     for (s in clusters[k].sortedBy { it.tsMs }) {
                         var best: Int? = null
@@ -159,6 +174,87 @@ class Clusterer(
         return kept.sortedBy { members -> members.minOf { it.tsMs } }
     }
 
+    /**
+     * Split-screen guard for stage 3. A never-alone fragment that forms a
+     * real appearance AND shares frames with established people at a
+     * clearly separated screen position is a genuinely co-occurring
+     * person — not duplicate debris. Same-frame box geometry is the
+     * deciding signal: drift duplicates never share a frame with their
+     * source at a distance, while a split-screen guest does so in every
+     * shared frame. Degenerate/missing geometry abstains (false), so old
+     * behavior — and old tests — hold wherever boxes carry no signal.
+     */
+    private fun isSpatiallyDistinctPerson(
+        candidate: List<FaceSample>,
+        establishedSamples: List<FaceSample>,
+        logger: ((String) -> Unit)? = null,
+    ): Boolean {
+        if (AppearanceSegmenter.segment(candidate)
+                .none { it.frames >= AppearanceSegmenter.MIN_SEGMENT_LEN }
+        ) return false
+        val byTs = establishedSamples.groupBy { it.tsMs }
+        var paired = 0
+        var separated = 0
+        for (s in candidate) {
+            val others = byTs[s.tsMs].orEmpty()
+            if (others.isEmpty()) continue
+            val sc = normalizedCenter(s) ?: continue
+            var farFromAll = true
+            var comparable = false
+            for (o in others) {
+                val oc = normalizedCenter(o) ?: continue
+                val iou = boxIou(s, o) ?: continue
+                comparable = true
+                val dx = abs(sc.first - oc.first)
+                if (dx < SPATIAL_MIN_DX || iou > SPATIAL_MAX_IOU) {
+                    farFromAll = false
+                    break
+                }
+            }
+            if (!comparable) continue
+            paired++
+            if (farFromAll) separated++
+        }
+        logger?.invoke(
+            "dissolve-spatial size=${candidate.size} " +
+                "paired=$paired separated=$separated",
+        )
+        return paired >= SPATIAL_MIN_PAIRED && separated == paired
+    }
+
+    private fun normalizedCenter(s: FaceSample): Pair<Float, Float>? {
+        if (s.frameW <= 0 || s.frameH <= 0) return null
+        val w = s.right - s.left
+        val h = s.bottom - s.top
+        if (w <= 0 || h <= 0) return null
+        return Pair(
+            ((s.left + s.right) / 2f) / s.frameW,
+            ((s.top + s.bottom) / 2f) / s.frameH,
+        )
+    }
+
+    private fun boxIou(a: FaceSample, b: FaceSample): Float? {
+        if (a.frameW <= 0 || a.frameH <= 0 ||
+            b.frameW <= 0 || b.frameH <= 0
+        ) return null
+        val ax0 = a.left / a.frameW.toFloat()
+        val ay0 = a.top / a.frameH.toFloat()
+        val ax1 = a.right / a.frameW.toFloat()
+        val ay1 = a.bottom / a.frameH.toFloat()
+        val bx0 = b.left / b.frameW.toFloat()
+        val by0 = b.top / b.frameH.toFloat()
+        val bx1 = b.right / b.frameW.toFloat()
+        val by1 = b.bottom / b.frameH.toFloat()
+        val iw = (minOf(ax1, bx1) - maxOf(ax0, bx0)).coerceAtLeast(0f)
+        val ih = (minOf(ay1, by1) - maxOf(ay0, by0)).coerceAtLeast(0f)
+        val inter = iw * ih
+        if (inter <= 0f) return 0f
+        val union = (ax1 - ax0) * (ay1 - ay0) +
+            (bx1 - bx0) * (by1 - by0) - inter
+        if (union <= 0f) return null
+        return inter / union
+    }
+
     companion object {
         /**
          * Competitive join floor. Below this, a face seeds a new person
@@ -192,6 +288,19 @@ class Clusterer(
 
         /** Clusters smaller than this are pruned (big casts only). */
         const val MIN_FACES_PER_CLUSTER = 2
+
+        /**
+         * Same-frame geometry bars for the split-screen keep-rule: the
+         * candidate must sit this far (fraction of frame width) from every
+         * established face sharing its frames, with negligible box overlap.
+         * Opposite halves of a composite sit ~0.5 apart; 0.20 keeps a wide
+         * margin while staying far from same-region duplicates (~0).
+         */
+        const val SPATIAL_MIN_DX = 0.20f
+        const val SPATIAL_MAX_IOU = 0.05f
+
+        /** Minimum same-frame pairs required before the keep-rule may fire. */
+        const val SPATIAL_MIN_PAIRED = 3
 
         /** Below this many candidate clusters, nothing is pruned. */
         const val MIN_CLUSTERS_TO_PRUNE = 3
