@@ -148,29 +148,37 @@ class Clusterer(
                 clusters[k].any { s -> !coveredByOthers(k, s.tsMs) }
             }.toSet()
             if (established.isNotEmpty()) {
+                // Snapshot: every removal below shifts `clusters` indices,
+                // so all code here addresses clusters through this stable
+                // list. Indexing the live list with pre-removal indices
+                // corrupted recipients — and crashed outright once a
+                // high-index established cluster outlived the list's
+                // shrinkage (Index 7 on a list shrunk to 7, Sample 1).
+                val snap = clusters.toList()
                 val recipientCentroid = established
-                    .associateWith { meanNormalized(clusters[it]) }
+                    .associateWith { meanNormalized(snap[it]) }
                     .toMutableMap()
-                val establishedSamples = established.flatMap { clusters[it] }
-                val dissolved = clusters.indices.filter { k ->
-                    k !in established && clusters[k].size <= DISSOLVE_MAX_SIZE
+                val establishedSamples = established.flatMap { snap[it] }
+                val dissolved = snap.indices.filter { k ->
+                    k !in established && snap[k].size <= DISSOLVE_MAX_SIZE
                 }
                 for (k in dissolved.sortedDescending()) {
+                    val cand = snap[k]
                     val maxAlts = established.maxOf { r ->
-                        countAlternations(clusters[k], clusters[r])
+                        countAlternations(cand, snap[r])
                     }
                     if (isSpatiallyDistinctPerson(
-                            clusters[k], establishedSamples, logger, maxAlts,
+                            cand, establishedSamples, logger, maxAlts,
                         )
                     ) {
                         logger?.invoke(
-                            "dissolve-keep size=${clusters[k].size} " +
+                            "dissolve-keep size=${cand.size} " +
                                 "(co-occurring person, separated screen position)",
                         )
                         continue
                     }
                     var rescued = 0
-                    for (s in clusters[k].sortedBy { it.tsMs }) {
+                    for (s in cand.sortedBy { it.tsMs }) {
                         var best: Int? = null
                         var bestSim = DISSOLVE_REASSIGN
                         for (r in established) {
@@ -181,17 +189,17 @@ class Clusterer(
                             }
                         }
                         if (best != null) {
-                            clusters[best].add(s)
-                            recipientCentroid[best] = meanNormalized(clusters[best])
+                            snap[best].add(s)
+                            recipientCentroid[best] = meanNormalized(snap[best])
                             rescued++
                         } else {
                             logger?.invoke("dissolve-drop ts=${s.tsMs}")
                         }
                     }
                     logger?.invoke(
-                        "dissolve cluster size=${clusters[k].size} rescued=$rescued",
+                        "dissolve cluster size=${cand.size} rescued=$rescued",
                     )
-                    clusters.removeAt(k)
+                    removeCluster(clusters, cand)
                 }
             }
         }
@@ -209,6 +217,18 @@ class Clusterer(
             clusters
         }
         return kept.sortedBy { members -> members.minOf { it.tsMs } }
+    }
+
+    /**
+     * Removes a cluster by identity. Pre-removal indices go stale the
+     * moment any removal shifts the live list — address by reference.
+     */
+    private fun removeCluster(
+        clusters: MutableList<MutableList<FaceSample>>,
+        cand: List<FaceSample>,
+    ) {
+        val idx = clusters.indexOfFirst { it === cand }
+        if (idx >= 0) clusters.removeAt(idx)
     }
 
     /**

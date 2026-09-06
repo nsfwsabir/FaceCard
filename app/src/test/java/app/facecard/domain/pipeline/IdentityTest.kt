@@ -343,6 +343,27 @@ class ClustererTest {
     }
 
     @Test
+    fun `dissolve survives high-index established clusters`() {
+        // Two droppable fragments sit below a late established cluster:
+        // each removal shifts the live list, so pre-removal indices into
+        // it go stale. Addressing the shrunk list with the old index
+        // crashed (Index 3 on length 3); references stay valid.
+        val embA = floatArrayOf(1f, 0f, 0f)
+        val embF1 = floatArrayOf(0.3f, 0.9539f, 0f)
+        val embF2 = floatArrayOf(0.3f, -0.9539f, 0f)
+        val embB = floatArrayOf(0f, 0f, 1f)
+        val samples = rep(0L, 6, embA) +
+            listOf(sample(200L, embF1), sample(400L, embF1)) +
+            listOf(sample(600L, embF2), sample(800L, embF2)) +
+            rep(5000L, 6, embB)
+        val logs = mutableListOf<String>()
+        val clusters = Clusterer().cluster(samples) { logs.add(it) }
+        assertEquals(2, clusters.size)
+        assertTrue(clusters.all { it.size == 6 })
+        assertEquals(4, logs.count { it.startsWith("dissolve-drop") })
+    }
+
+    @Test
     fun `clear best match still joins directly`() {
         // The margin only reroutes contested faces: s at 0.99 vs 0.11
         // joins A without seeding.
