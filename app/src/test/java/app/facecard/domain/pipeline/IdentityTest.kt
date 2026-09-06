@@ -276,6 +276,38 @@ class ClustererTest {
     }
 
     @Test
+    fun `contested face seeds a fragment instead of joining`() {
+        // s matches A at 0.53 but B at 0.50: a coin-flip the old floor
+        // would silently award to A. It must seed a fragment instead —
+        // merge (needs ≥0.55) leaves it alone, it owns solo screen time,
+        // and all three survive.
+        val embA = floatArrayOf(1f, 0f, 0f)
+        val embB = floatArrayOf(0.48f, 0.87727f, 0f)
+        val embS = floatArrayOf(0.53f, 0.285f, 0.79867f)
+        val samples = rep(0L, 3, embA) + rep(5000L, 3, embB) +
+            listOf(sample(10000L, embS), sample(10200L, embS))
+        val clusters = Clusterer().cluster(samples)
+        assertEquals(3, clusters.size)
+        assertTrue(clusters.any { it.size == 3 })
+        assertTrue(clusters.any { it.size == 2 })
+    }
+
+    @Test
+    fun `clear best match still joins directly`() {
+        // The margin only reroutes contested faces: s at 0.99 vs 0.11
+        // joins A without seeding.
+        val embA = floatArrayOf(1f, 0f, 0f)
+        val embB = floatArrayOf(0f, 1f, 0f)
+        val embS = floatArrayOf(0.99388f, 0.11043f, 0f)
+        val samples = rep(0L, 3, embA) + rep(5000L, 3, embB) +
+            listOf(sample(10000L, embS))
+        val clusters = Clusterer().cluster(samples)
+        assertEquals(2, clusters.size)
+        assertTrue(clusters.any { it.size == 4 })
+        assertTrue(clusters.any { it.size == 3 })
+    }
+
+    @Test
     fun `lone noise is dropped in a big cast`() {
         val samples = mutableListOf<FaceSample>()
         repeat(3) { i ->

@@ -74,7 +74,7 @@ fun AboutScreen(onBack: () -> Unit) {
             }
             AboutCard("Key thresholds") {
                 Text("Identity: competitive assignment, join τ = " +
-                    "${Clusterer.COSINE_THRESHOLD} (best match wins)")
+                    "${Clusterer.COSINE_THRESHOLD} (clear best match wins)")
                 Text("Merge ≥ ${Clusterer.MERGE_THRESHOLD} disjoint time + " +
                     "same region · " +
                     "dissolve never-alone ≤ ${Clusterer.DISSOLVE_MAX_SIZE}")

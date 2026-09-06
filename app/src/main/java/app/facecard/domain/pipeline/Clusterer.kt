@@ -20,7 +20,14 @@ import kotlin.math.sqrt
  * bounded because centroids stabilise within a few samples.
  *
  * Stages:
- * 1. Streaming argmax assignment in time order (join bar = floor).
+ * 1. Streaming argmax assignment in time order (join bar = floor), with
+ *    a contest margin: a face joins its best match only when clearly
+ *    ahead of the runner-up. Contested faces seed fragments instead of
+ *    silently polluting a centroid — the merge/dissolve passes below are
+ *    built to adjudicate fragments, while a polluted centroid corrupts
+ *    every later decision (near-miss absorption: stray faces vanish into
+ *    wrong people as sub-run scraps, starving true runs and occasionally
+ *    bridging into phantom segments).
  * 2. Constrained agglomerative merge: centroid pairs ≥ merge bar with
  *    DISJOINT screen time AND the same screen region reunite (the brief's
  *    shared frames hold distinct people: cannot-link; and two steady
@@ -52,14 +59,21 @@ class Clusterer(
         for (s in ordered) {
             var best = -1
             var bestSim = threshold
+            var runnerUp = -1f
             for (i in clusters.indices) {
                 val sim = cosine(s.embedding, centroids[i])
                 if (sim >= bestSim) {
+                    runnerUp = bestSim
                     bestSim = sim
                     best = i
+                } else if (sim > runnerUp) {
+                    runnerUp = sim
                 }
             }
-            if (best >= 0) {
+            // A lone cluster has no contest to win: the floor decides.
+            // Otherwise the winner must clear the runner-up by the margin;
+            // contested faces seed a fragment for later adjudication.
+            if (best >= 0 && (clusters.size <= 1 || bestSim - runnerUp >= ASSIGN_MARGIN)) {
                 clusters[best].add(s)
                 centroids[best] = meanNormalized(clusters[best])
             } else {
@@ -307,6 +321,15 @@ class Clusterer(
 
         /** Back-compat alias for the UI/docs threshold display. */
         const val COSINE_THRESHOLD = JOIN_THRESHOLD
+
+        /**
+         * Contest margin for stage-1 assignment. The best match must clear
+         * the runner-up by this much; otherwise the face seeds a fragment
+         * instead of joining. Small on purpose: clear same-person matches
+         * (typically 0.2+ ahead) are unaffected, while coin-flip faces go
+         * to merge/dissolve adjudication instead of polluting a centroid.
+         */
+        const val ASSIGN_MARGIN = 0.05f
 
         /**
          * Centroid bar for stage-2 merges (disjoint screen time required).

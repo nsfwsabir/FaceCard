@@ -35,7 +35,7 @@ No API keys, no network, no model downloads — everything ships in the APK.
 | Face detection | **ML Kit face detection, bundled model** (`com.google.mlkit:face-detection:16.1.5`) — accurate mode, all classifications (eyes + smile), tracking IDs, min face size 0.12. Bundled (not the Play-Services thin client) so it works offline on first launch |
 | Blur gate | Laplacian variance, no OpenCV: frame < 40 → whip-pan drop (counts for nobody); face < 60 → dropped from counting *and* best shots. Only landmark-verified full faces (eyes, nose, mouth inside frame) are embedded — partial faces match arbitrarily |
 | Embedding | **MobileFaceNet, 112×112 → 192-d float32** (`assets/mobilefacenet.tflite`, via MCarlomagno/FaceRecognitionAuth, BSD-3-Clause; MobileFaceNet architecture by deepinsight). Pixels to [-1, 1]; output is unit-norm → cosine = dot. Validated with LiteRT: `input[1,112,112,3] fp32 → embeddings[1,192] fp32`, ‖emb‖ ≈ 1.0 |
-| Clustering | Online competitive assignment (time-ordered, best match wins), join τ 0.50 · merge 0.55 disjoint-only + same screen region · never-alone dissolve — see below |
+| Clustering | Online competitive assignment (time-ordered, clear best match wins), join τ 0.50 + contest margin 0.05 · merge 0.55 disjoint-only + same screen region · never-alone dissolve — see below |
 | Appearances | Per-person segments: ≤1500 ms gap bridged (mid-appearance detection holes), ≥3 frames (0.6 s) to count — flicker/whip-pans don't inflate counts; shared frames count once per person |
 | Best shot | Solo-frame candidates preferred (shared frames drag neighbours into the tile); 0.30 frontality + 0.30 sharpness + 0.20 eyes-open + 0.15 smile + 0.05 size, with vetoes (closed eyes ×0.2, clipped ×0.3, profile ×0.5, tiny face ×0.5). Full-res re-extract, generous crop (2.4× face box, 1.8× fallback for shared frames clamped to its frame half — never a tight face crop) |
 | Collage | 1080×1920 story canvas (hero/split/editorial/mosaic by headcount). The preview displays the exact export bitmap |
@@ -45,7 +45,11 @@ No API keys, no network, no model downloads — everything ships in the APK.
 ### Similarity threshold chosen
 
 **Competitive assignment, join τ = 0.50, merge 0.55** (`Clusterer`). Each
-face joins its BEST-matching identity at/above the floor; a constrained
+face joins its BEST-matching identity at/above the floor, but only when
+the match is uncontested (clear of the runner-up by 0.05): contested
+faces seed fragments for the merge/dissolve passes to adjudicate instead
+of silently polluting a centroid (near-miss absorption starves true runs
+and bridges phantom segments on interleaved edits); a constrained
 agglomerative pass reunites fragment pairs with centroid sim ≥ 0.55 that
 NEVER share screen time (the brief's shared frames hold distinct people:
 cannot-link). Pairs of positionally steady clusters living in clearly
