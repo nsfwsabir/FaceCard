@@ -231,6 +231,51 @@ class ClustererTest {
     }
 
     @Test
+    fun `migration reunites drift in the same screen region`() {
+        // Control for the region guard: the migration shape with all
+        // boxes identical — the merge must still fire.
+        val left = Pair(40, 180)
+        val samples = listOf(
+            geoSample(0L, floatArrayOf(1f, 0f, 0f), left.first, left.second),
+            geoSample(100L, floatArrayOf(0.984808f, 0.173648f, 0f), left.first, left.second),
+            geoSample(200L, floatArrayOf(0.342020f, 0.939693f, 0f), left.first, left.second),
+            geoSample(300L, floatArrayOf(0.819152f, 0.573576f, 0f), left.first, left.second),
+            geoSample(600L, floatArrayOf(0.342020f, 0.939693f, 0f), left.first, left.second),
+        )
+        val logs = mutableListOf<String>()
+        val clusters = Clusterer().cluster(samples) { logs.add(it) }
+        assertEquals(1, clusters.size)
+        assertEquals(5, clusters[0].size)
+        assertTrue(logs.any { it.startsWith("merge size=") })
+    }
+
+    @Test
+    fun `merge blocked for steady clusters in different screen regions`() {
+        // Same embeddings and timing as the control, but the drift pair
+        // lives in the opposite half: disjoint time, passing sim, yet two
+        // steady regions — different people, so the merge is refused. The
+        // pair's late sample at ts=600 owns solo screen time, so dissolve
+        // cannot reunite what the guard keeps apart.
+        val samples = listOf(
+            geoSample(0L, floatArrayOf(1f, 0f, 0f), left = 40, right = 180),
+            geoSample(100L, floatArrayOf(0.984808f, 0.173648f, 0f), left = 40, right = 180),
+            geoSample(200L, floatArrayOf(0.342020f, 0.939693f, 0f), left = 460, right = 600),
+            geoSample(300L, floatArrayOf(0.819152f, 0.573576f, 0f), left = 40, right = 180),
+            geoSample(600L, floatArrayOf(0.342020f, 0.939693f, 0f), left = 460, right = 600),
+        )
+        val logs = mutableListOf<String>()
+        val clusters = Clusterer().cluster(samples) { logs.add(it) }
+        assertEquals(2, clusters.size)
+        assertTrue(clusters.any { it.size == 3 })
+        assertTrue(clusters.any { it.size == 2 })
+        assertTrue(
+            logs.any {
+                it.startsWith("block merge") && it.contains("different screen regions")
+            },
+        )
+    }
+
+    @Test
     fun `lone noise is dropped in a big cast`() {
         val samples = mutableListOf<FaceSample>()
         repeat(3) { i ->

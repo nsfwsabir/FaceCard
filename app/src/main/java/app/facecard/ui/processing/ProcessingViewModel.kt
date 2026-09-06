@@ -281,6 +281,15 @@ class ProcessingViewModel(
                         }
                         .mapIndexed { i, p -> p.copy(id = i, label = "Person ${'A' + i}") }
                 }
+                for (p in people) {
+                    decisions.add(
+                        "person ${p.label} n=${p.samples.size} " +
+                            "x${p.appearances.size} " +
+                            p.appearances.take(6).joinToString(",") {
+                                "[${it.startMs}-${it.endMs}]"
+                            },
+                    )
+                }
                 (extractor.appContext.applicationContext as FaceCardApp)
                     .resultStore.setDecisions(decisions.toList())
                 val result = ProcessResult(people)

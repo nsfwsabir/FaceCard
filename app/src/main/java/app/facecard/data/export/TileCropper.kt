@@ -16,7 +16,9 @@ data class CropRect(val l: Int, val t: Int, val w: Int, val h: Int)
  *
  * @param shared the best shot comes from a shared frame (no solo candidate
  *   existed): pulls the expansion in to 1.8× / 35% so the neighbour
- *   intrudes less. Still generous — just less greedy.
+ *   intrudes less, and clamps the square to the face's own half of the
+ *   frame so a split-screen neighbour is excluded entirely. Still
+ *   generous — just less greedy.
  */
 fun generousCrop(
     s: FaceSample,
@@ -35,6 +37,21 @@ fun generousCrop(
     var cy = ((s.top + s.bottom) / 2f) * sy
     var side = max(bw * sx, bh * sy) * (if (shared) 1.8f else 2.4f)
     side = max(side, (if (shared) 0.35f else 0.45f) * min(fullW, fullH))
+    if (shared) {
+        // Split-screen guard: an always-shared tile must not drag the
+        // neighbour into the frame. When the face box sits fully in one
+        // half, shrink the square to that half. Never tighter than the
+        // face box itself (a box inside its half always fits: the half-fit
+        // bound is provably ≥ box width); skipped when the box straddles
+        // the midline rather than risk decapitating the subject.
+        val mid = fullW / 2f
+        val halfFit = when {
+            s.right * sx <= mid -> 2f * (mid - cx)
+            s.left * sx >= mid -> 2f * (cx - mid)
+            else -> null
+        }
+        if (halfFit != null && halfFit > 0f) side = min(side, halfFit)
+    }
     cy -= side * 0.08f // headroom: faces sit slightly below tile centre
     if (side >= min(fullW, fullH) * 0.98f) {
         return CropRect(0, 0, fullW, fullH)

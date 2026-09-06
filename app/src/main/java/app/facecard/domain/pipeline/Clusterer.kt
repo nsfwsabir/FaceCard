@@ -22,8 +22,10 @@ import kotlin.math.sqrt
  * Stages:
  * 1. Streaming argmax assignment in time order (join bar = floor).
  * 2. Constrained agglomerative merge: centroid pairs ≥ merge bar with
- *    DISJOINT screen time reunite (the brief's shared frames hold distinct
- *    people: cannot-link).
+ *    DISJOINT screen time AND the same screen region reunite (the brief's
+ *    shared frames hold distinct people: cannot-link; and two steady
+ *    clusters in different regions are different people even when their
+ *    appearances never overlap).
  * 3. Never-alone dissolve: a small fragment with zero solo screen time is
  *    usually shared-frame debris — reassigned sample-wise or dropped.
  *    Exception: a temporally coherent fragment sharing frames with
@@ -86,6 +88,15 @@ class Clusterer(
                         logger?.invoke(
                             "block merge size=${clusters[i].size}+${clusters[j].size} " +
                                 "sim=${"%.3f".format(sim)} (co-occurring people)",
+                        )
+                        continue
+                    }
+                    if (separatedRegions(clusters[i], clusters[j])) {
+                        logger?.invoke(
+                            "block merge size=${clusters[i].size}+" +
+                                "${clusters[j].size} " +
+                                "sim=${"%.3f".format(sim)} " +
+                                "(different screen regions)",
                         )
                         continue
                     }
@@ -172,6 +183,36 @@ class Clusterer(
             clusters
         }
         return kept.sortedBy { members -> members.minOf { it.tsMs } }
+    }
+
+    /**
+     * Merge guard: the same person holds their screen position across
+     * segments, so two positionally steady clusters living in clearly
+     * different regions are different people — even with disjoint screen
+     * time and a passing centroid sim (cross-person pairs reach ~0.55 on
+     * real footage). Returns false (abstain → merge allowed) whenever
+     * either side carries too little geometry to judge: fewer than two
+     * valid boxes, or a wandering position (high MAD, e.g. a moving
+     * subject legitimately changing seats across cuts).
+     */
+    private fun separatedRegions(
+        a: List<FaceSample>,
+        b: List<FaceSample>,
+    ): Boolean {
+        val ra = regionOf(a) ?: return false
+        val rb = regionOf(b) ?: return false
+        return abs(ra.first - rb.first) >= SPATIAL_MIN_DX
+    }
+
+    private fun regionOf(members: List<FaceSample>): Pair<Float, Float>? {
+        val cxs = members.mapNotNull { normalizedCenter(it)?.first }
+        if (cxs.size < 2) return null
+        val sorted = cxs.sorted()
+        val median = sorted[sorted.size / 2]
+        val mad = sorted.map { abs(it - median) }.sorted()
+            .let { it[it.size / 2] }
+        if (mad > REGION_MAX_MAD) return null
+        return Pair(median, mad)
     }
 
     /**
@@ -301,6 +342,14 @@ class Clusterer(
 
         /** Minimum same-frame pairs required before the keep-rule may fire. */
         const val SPATIAL_MIN_PAIRED = 3
+
+        /**
+         * Maximum positional spread (median absolute deviation of
+         * normalized face-center x) for a cluster to count as holding its
+         * screen region. Wider than this, the subject moves around and
+         * the merge region guard abstains.
+         */
+        const val REGION_MAX_MAD = 0.08f
 
         /** Below this many candidate clusters, nothing is pruned. */
         const val MIN_CLUSTERS_TO_PRUNE = 3

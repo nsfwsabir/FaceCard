@@ -171,4 +171,33 @@ class TileCropperTest {
         assertTrue(c.l >= 0 && c.t >= 0 && c.l + c.w <= 640 && c.t + c.h <= 1136)
         assertTrue(c.w >= 200)
     }
+
+    @Test
+    fun `shared crop stays in its own half`() {
+        // Split-screen geometry: 200×200 face fully inside the left half
+        // of a 640×1136 detection frame, full-res 2×. The plain 1.8×
+        // square (720) would cross the 640 midline and drag the neighbour
+        // in; the half-fit (640) must win instead.
+        val s = sample().copy(
+            left = 60, top = 400, right = 260, bottom = 600,
+            soloFrame = false,
+        )
+        val c = generousCrop(s, 1280, 2272, shared = true)
+        assertTrue("r=${c.l + c.w}", c.l + c.w <= 641)
+        // Still generous, square, and in-frame: never tighter than the box.
+        assertEquals(c.w, c.h)
+        assertTrue("w=${c.w}", c.w >= 400)
+        assertTrue(c.l >= 0 && c.t >= 0)
+        assertTrue(c.l + c.w <= 1280 && c.t + c.h <= 2272)
+    }
+
+    @Test
+    fun `shared crop skips half clamp when box straddles midline`() {
+        // Centre-frame face: clamping to either half would decapitate, so
+        // the plain shared path (1.8× / 35% floor) applies.
+        val s = sample().copy(soloFrame = false)
+        val c = generousCrop(s, 1280, 2272, shared = true)
+        assertEquals(c.w, c.h)
+        assertTrue("w=${c.w}", c.w >= 440)
+    }
 }

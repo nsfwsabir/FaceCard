@@ -75,7 +75,8 @@ fun AboutScreen(onBack: () -> Unit) {
             AboutCard("Key thresholds") {
                 Text("Identity: competitive assignment, join τ = " +
                     "${Clusterer.COSINE_THRESHOLD} (best match wins)")
-                Text("Merge ≥ ${Clusterer.MERGE_THRESHOLD} disjoint only · " +
+                Text("Merge ≥ ${Clusterer.MERGE_THRESHOLD} disjoint time + " +
+                    "same region · " +
                     "dissolve never-alone ≤ ${Clusterer.DISSOLVE_MAX_SIZE}")
                 Text("Blur: frame ≥ 40, face ≥ 60 (Laplacian variance)")
                 Text("Segment gap ≤ ${AppearanceSegmenter.GAP_TOL_MS}ms, " +
